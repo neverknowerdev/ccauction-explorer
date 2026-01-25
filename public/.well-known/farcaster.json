@@ -1,0 +1,30 @@
+{
+  "name": "CCA Auctions Explorer",
+  "description": "A mobile-first web application for exploring and participating in CCA (Crypto Currency Auctions). Browse live auctions, place bids, and track your orders.",
+  "iconUrl": "https://ccauction-explorer.vercel.app/icon.png",
+  "homeUrl": "https://ccauction-explorer.vercel.app",
+  "splashImageUrl": "https://ccauction-explorer.vercel.app/splash.png",
+  "splashBackgroundColor": "#8B5CF6",
+  "permissions": [
+    "user:read",
+    "cast:read",
+    "cast:write"
+  ],
+  "chains": [
+    {
+      "id": 8453,
+      "name": "Base",
+      "rpcUrl": "https://mainnet.base.org"
+    },
+    {
+      "id": 84532,
+      "name": "Base Sepolia",
+      "rpcUrl": "https://sepolia.base.org"
+    }
+  ],
+  "requiredChains": [
+    "eip155:8453",
+    "eip155:84532"
+  ],
+  "version": "0.1.0"
+}
