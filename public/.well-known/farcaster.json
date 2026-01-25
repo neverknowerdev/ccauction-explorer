@@ -1,4 +1,9 @@
 {
+  "accountAssociation": {
+    "header": "eyJmaWQiOjk2OTIwNiwidHlwZSI6ImF1dGgiLCJrZXkiOiIweGY4NDlCYUUwMDU1MzE4OUMwZUJEOUY1MzQyYjZlMDIyMUMyNDBEZjcifQ",
+    "payload": "eyJkb21haW4iOiJjY2F1Y3Rpb24tZXhwbG9yZXIudmVyY2VsLmFwcCJ9",
+    "signature": "tVUQoiGnlYiGVm6Cx0ZUzHGe0nlqtd1Pn1Av/0iztktMM2++ptOan118L7FW27qhiKNb0cNCX2UeN9iOB5B+1Rw="
+  },
   "name": "CCA Auctions Explorer",
   "description": "A mobile-first web application for exploring and participating in CCA (Crypto Currency Auctions). Browse live auctions, place bids, and track your orders.",
   "iconUrl": "https://ccauction-explorer.vercel.app/icon.png",
