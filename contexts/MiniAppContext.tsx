@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { useAccount } from 'wagmi';
+import { sdk } from '@farcaster/miniapp-sdk';
 
 interface MiniAppContextType {
   username: string | null;
@@ -30,22 +31,21 @@ function MiniAppContextProvider({ children }: { children: ReactNode }) {
       if (typeof window === 'undefined') return;
 
       try {
-        // Dynamically import SDK to avoid SSR issues
-        const { sdk } = await import('@farcaster/miniapp-sdk');
-
         // Call ready() when page loads to hide splash screen
         await sdk.actions.ready();
 
-        // Get user data from context
-        const context = sdk.context as any;
+        // Get user data from context (context is a Promise)
+        const context = await sdk.context;
         if (context?.user) {
           const user = context.user;
           setFid(user.fid);
 
           if (user.displayName) {
             setUsername(user.displayName);
-          } else if (user.displayName) {
+          } else if (user.username) {
             setUsername(user.username);
+          } else {
+            setUsername('Guest');
           }
         } else {
           setUsername('Guest');
