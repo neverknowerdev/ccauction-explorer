@@ -9,6 +9,7 @@ interface MiniAppContextType {
   walletAddress: string | null;
   isReady: boolean;
   fid: number | null;
+  profilePicture: string | null;
 }
 
 const MiniAppContext = createContext<MiniAppContextType>({
@@ -16,12 +17,14 @@ const MiniAppContext = createContext<MiniAppContextType>({
   walletAddress: null,
   isReady: false,
   fid: null,
+  profilePicture: null,
 });
 
 function MiniAppContextProvider({ children }: { children: ReactNode }) {
   const [username, setUsername] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [fid, setFid] = useState<number | null>(null);
+  const [profilePicture, setProfilePicture] = useState<string | null>(null);
   const { address } = useAccount();
 
   useEffect(() => {
@@ -47,6 +50,10 @@ function MiniAppContextProvider({ children }: { children: ReactNode }) {
           } else {
             setUsername('Guest');
           }
+
+          if (user.pfpUrl) {
+            setProfilePicture(user.pfpUrl);
+          }
         } else {
           setUsername('Guest');
         }
@@ -64,7 +71,7 @@ function MiniAppContextProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <MiniAppContext.Provider value={{ username, walletAddress: address || null, isReady, fid }}>
+    <MiniAppContext.Provider value={{ username, walletAddress: address || null, isReady, fid, profilePicture }}>
       {children}
     </MiniAppContext.Provider>
   );

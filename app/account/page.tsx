@@ -8,7 +8,7 @@ import { formatWalletAddress } from '@/utils/format';
 
 export default function AccountPage() {
   const router = useRouter();
-  const { username, walletAddress } = useMiniApp();
+  const { username, walletAddress, profilePicture } = useMiniApp();
 
   const handleResetOnboarding = () => {
     localStorage.removeItem('hasSeenOnboarding');
@@ -28,9 +28,17 @@ export default function AccountPage() {
           {/* Profile Section */}
           <div className="bg-white/20 backdrop-blur-md rounded-xl p-6 border border-white/30 text-center">
             <div className="flex justify-center mb-4">
-              <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center">
-                <AppIcon size={50} />
-              </div>
+              {profilePicture ? (
+                <img
+                  src={profilePicture}
+                  alt={username || 'Profile'}
+                  className="w-20 h-20 rounded-full object-cover border-2 border-white/30"
+                />
+              ) : (
+                <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center">
+                  <AppIcon size={50} />
+                </div>
+              )}
             </div>
             {username && (
               <h2 className="text-xl font-bold text-white mb-2">{username}</h2>
