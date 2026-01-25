@@ -1,0 +1,80 @@
+'use client';
+
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { useAccount } from 'wagmi';
+
+interface MiniAppContextType {
+  username: string | null;
+  walletAddress: string | null;
+  isReady: boolean;
+  fid: number | null;
+}
+
+const MiniAppContext = createContext<MiniAppContextType>({
+  username: null,
+  walletAddress: null,
+  isReady: false,
+  fid: null,
+});
+
+function MiniAppContextProvider({ children }: { children: ReactNode }) {
+  const [username, setUsername] = useState<string | null>(null);
+  const [isReady, setIsReady] = useState(false);
+  const [fid, setFid] = useState<number | null>(null);
+  const { address } = useAccount();
+
+  useEffect(() => {
+    // Initialize Farcaster Mini App
+    const initializeMiniApp = async () => {
+      // Only run on client side
+      if (typeof window === 'undefined') return;
+
+      try {
+        // Dynamically import SDK to avoid SSR issues
+        const { sdk } = await import('@farcaster/miniapp-sdk');
+
+        // Call ready() when page loads to hide splash screen
+        await sdk.actions.ready();
+
+        // Get user data from context
+        const context = sdk.context as any;
+        if (context?.user) {
+          const user = context.user;
+          setFid(user.fid);
+
+          // Get username - ensure it's a string, not a promise
+          let usernameValue: string | null = null;
+
+          if (user.username) {
+            setUsername(user.username);
+          }
+        }
+
+        setUsername('Guest');
+
+        setIsReady(true);
+      } catch (error) {
+        console.error('Error initializing Farcaster Mini App:', error);
+        // Fallback for development
+        setUsername('DemoUser');
+        setIsReady(true);
+      }
+    };
+
+    initializeMiniApp();
+  }, []);
+
+  return (
+    <MiniAppContext.Provider value={{ username, walletAddress: address || null, isReady, fid }}>
+      {children}
+    </MiniAppContext.Provider>
+  );
+}
+
+export function MiniAppProvider({ children }: { children: ReactNode }) {
+  return <MiniAppContextProvider>{children}</MiniAppContextProvider>;
+}
+
+export function useMiniApp() {
+  return useContext(MiniAppContext);
+}
