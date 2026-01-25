@@ -42,15 +42,14 @@ function MiniAppContextProvider({ children }: { children: ReactNode }) {
           const user = context.user;
           setFid(user.fid);
 
-          // Get username - ensure it's a string, not a promise
-          let usernameValue: string | null = null;
-
-          if (user.username) {
+          if (user.displayName) {
+            setUsername(user.displayName);
+          } else if (user.displayName) {
             setUsername(user.username);
           }
+        } else {
+          setUsername('Guest');
         }
-
-        setUsername('Guest');
 
         setIsReady(true);
       } catch (error) {
