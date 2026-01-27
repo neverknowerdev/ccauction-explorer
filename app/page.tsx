@@ -91,7 +91,10 @@ export default function HomePage() {
           <section>
             <h2 className="text-xl font-semibold text-white mb-4">Quick Actions</h2>
             <div className="grid grid-cols-2 gap-3">
-              <button className="bg-white/20 backdrop-blur-md rounded-xl p-4 border border-white/30 hover:bg-white/30 transition-colors text-white text-left">
+              <button 
+                onClick={() => router.push('/create-auction')}
+                className="bg-white/20 backdrop-blur-md rounded-xl p-4 border border-white/30 hover:bg-white/30 transition-colors text-white text-left"
+              >
                 <p className="font-semibold mb-1">Create Auction</p>
                 <p className="text-xs text-white/70">Start your own</p>
               </button>
