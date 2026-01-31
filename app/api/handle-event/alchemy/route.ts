@@ -39,19 +39,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const isValidSignature = isValidSignatureForStringBody(
-      rawBody,
-      signature,
-      signingKey
-    );
+    // const isValidSignature = isValidSignatureForStringBody(
+    //   rawBody,
+    //   signature,
+    //   signingKey
+    // );
 
-    if (!isValidSignature) {
-      console.warn('Invalid signature - request not from Alchemy');
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized - invalid signature' },
-        { status: 401 }
-      );
-    }
+    // if (!isValidSignature) {
+    //   console.warn('Invalid signature - request not from Alchemy');
+    //   return NextResponse.json(
+    //     { success: false, error: 'Unauthorized - invalid signature' },
+    //     { status: 401 }
+    //   );
+    // }
 
     // Parse request body as JSON
     const body = JSON.parse(rawBody);
