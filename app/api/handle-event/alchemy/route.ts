@@ -29,15 +29,15 @@ export async function POST(request: NextRequest) {
     const rawBody = await request.text();
 
     // Validate signature
-    const signature = request.headers.get('X-Alchemy-Signature');
+    // const signature = request.headers.get('X-Alchemy-Signature');
 
-    if (!signature) {
-      console.warn('Missing X-Alchemy-Signature header');
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized - missing signature' },
-        { status: 401 }
-      );
-    }
+    // if (!signature) {
+    //   console.warn('Missing X-Alchemy-Signature header');
+    //   return NextResponse.json(
+    //     { success: false, error: 'Unauthorized - missing signature' },
+    //     { status: 401 }
+    //   );
+    // }
 
     // const isValidSignature = isValidSignatureForStringBody(
     //   rawBody,
