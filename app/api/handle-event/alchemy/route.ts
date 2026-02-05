@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as crypto from 'crypto';
+import {
+  processLogEntry,
+  alchemyLogToViemLog,
+  type AlchemyLog,
+  type ProcessingResult,
+} from '@/lib/events';
 
 function isValidSignatureForStringBody(
   body: string,
@@ -12,13 +18,33 @@ function isValidSignatureForStringBody(
   return signature === digest;
 }
 
+/**
+ * Parse ALCHEMY_SIGNING_KEYS from env. Accepts:
+ * - JSON array: ["key1", "key2"]
+ * - Comma-separated: key1,key2
+ */
+function parseSigningKeys(envValue: string | undefined): string[] {
+  if (!envValue || envValue.trim() === '') return [];
+  const trimmed = envValue.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      return Array.isArray(parsed)
+        ? parsed.filter((k): k is string => typeof k === 'string')
+        : [];
+    } catch {
+      return [];
+    }
+  }
+  return trimmed.split(',').map((k) => k.trim()).filter(Boolean);
+}
+
 export async function POST(request: NextRequest) {
   try {
-    // Get signing key from environment
-    const signingKey = process.env.ALCHEMY_WEBHOOK_SIGNING_KEY;
+    const signingKeys = parseSigningKeys(process.env.ALCHEMY_SIGNING_KEYS);
 
-    if (!signingKey) {
-      console.error('ALCHEMY_WEBHOOK_SIGNING_KEY environment variable is not set');
+    if (signingKeys.length === 0) {
+      console.error('ALCHEMY_SIGNING_KEYS environment variable is not set or empty');
       return NextResponse.json(
         { success: false, error: 'Server configuration error' },
         { status: 500 }
@@ -28,30 +54,27 @@ export async function POST(request: NextRequest) {
     // Get the raw body as text for signature validation
     const rawBody = await request.text();
 
-    // Validate signature
-    // const signature = request.headers.get('X-Alchemy-Signature');
+    const signature = request.headers.get('X-Alchemy-Signature');
 
-    // if (!signature) {
-    //   console.warn('Missing X-Alchemy-Signature header');
-    //   return NextResponse.json(
-    //     { success: false, error: 'Unauthorized - missing signature' },
-    //     { status: 401 }
-    //   );
-    // }
+    if (!signature) {
+      console.warn('Missing X-Alchemy-Signature header');
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized - missing signature' },
+        { status: 401 }
+      );
+    }
 
-    // const isValidSignature = isValidSignatureForStringBody(
-    //   rawBody,
-    //   signature,
-    //   signingKey
-    // );
+    const isValidSignature = signingKeys.some((key) =>
+      isValidSignatureForStringBody(rawBody, signature, key)
+    );
 
-    // if (!isValidSignature) {
-    //   console.warn('Invalid signature - request not from Alchemy');
-    //   return NextResponse.json(
-    //     { success: false, error: 'Unauthorized - invalid signature' },
-    //     { status: 401 }
-    //   );
-    // }
+    if (!isValidSignature) {
+      console.warn('Invalid signature - request not from Alchemy');
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized - invalid signature' },
+        { status: 401 }
+      );
+    }
 
     // Parse request body as JSON
     const body = JSON.parse(rawBody);
@@ -67,42 +90,64 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Extract and print the required fields
-    const blockNumber = block.number;
+    // Extract chain ID from the webhook or use default
+    const chainId = body?.event?.network?.chainId ?? 1;
+
+    // Extract block info
+    const blockNumber = parseInt(block.number, 16); // Alchemy sends hex
     const blockHash = block.hash;
     const timestamp = block.timestamp;
-    const logs = block.logs || [];
+    // Parse timestamp: Alchemy sends hex or decimal string
+    const blockTimestamp = new Date(
+      (typeof timestamp === 'string' && timestamp.startsWith('0x')
+        ? parseInt(timestamp, 16)
+        : parseInt(timestamp, 10)) * 1000
+    );
+    const alchemyLogs: AlchemyLog[] = block.logs || [];
 
     console.log('=== Alchemy Webhook Event ===');
+    console.log('Chain ID:', chainId);
     console.log('Block Number:', blockNumber);
     console.log('Block Hash:', blockHash);
     console.log('Timestamp:', timestamp);
-    console.log('Logs Count:', logs.length);
+    console.log('Logs Count:', alchemyLogs.length);
     console.log('');
 
-    // Print transaction hashes and logs
-    logs.forEach((log: any, index: number) => {
-      const txHash = log?.transaction?.hash;
-      console.log(`Log ${index}:`);
-      console.log('  Transaction Hash:', txHash);
-      console.log('  Log Data:', log.data);
-      console.log('  Topics:', log.topics);
-      console.log('  Index:', log.index);
-      console.log('  Account Address:', log?.account?.address);
-      console.log('  From Address:', log?.transaction?.from?.address);
-      console.log('  To Address:', log?.transaction?.to?.address);
-      console.log('');
-    });
+    // Process each log using shared processor (event topics loaded and cached inside processor)
+    const results: ProcessingResult[] = [];
+    for (const alchemyLog of alchemyLogs) {
+      // Convert Alchemy format to viem Log
+      const viemLog = alchemyLogToViemLog(alchemyLog, blockNumber, blockHash);
 
+      const result = await processLogEntry(viemLog, {
+        chainId,
+        blockNumber,
+        blockTimestamp,
+        source: 'ALCHEMY_WEBHOOK',
+        verbose: true,
+      });
+      results.push(result);
+    }
+
+    const processed = results.filter(r => r.status === 'processed').length;
+    const skipped = results.filter(r => r.status === 'skipped').length;
+    const errors = results.filter(r => r.status === 'error').length;
+
+    console.log('============================');
+    console.log(`Summary: ${processed} processed, ${skipped} skipped, ${errors} errors`);
     console.log('============================');
 
     return NextResponse.json({
       success: true,
       message: 'Event received and processed',
+      chainId,
       blockNumber,
       blockHash,
       timestamp,
-      logsCount: logs.length
+      logsCount: alchemyLogs.length,
+      processed,
+      skipped,
+      errors,
     });
   } catch (error) {
     console.error('Error in handle-event/alchemy:', error);

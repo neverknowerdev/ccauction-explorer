@@ -27,6 +27,9 @@ yarn-error.log*
 # local env files
 .env*.local
 
+# simulation wallet keys (contains private keys)
+simulation-wallets.json
+
 # vercel
 .vercel
 

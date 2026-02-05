@@ -10,6 +10,7 @@ interface MiniAppContextType {
   isReady: boolean;
   fid: number | null;
   profilePicture: string | null;
+  isMiniApp: boolean;
 }
 
 const MiniAppContext = createContext<MiniAppContextType>({
@@ -18,6 +19,7 @@ const MiniAppContext = createContext<MiniAppContextType>({
   isReady: false,
   fid: null,
   profilePicture: null,
+  isMiniApp: false,
 });
 
 function MiniAppContextProvider({ children }: { children: ReactNode }) {
@@ -25,6 +27,7 @@ function MiniAppContextProvider({ children }: { children: ReactNode }) {
   const [isReady, setIsReady] = useState(false);
   const [fid, setFid] = useState<number | null>(null);
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
+  const [isMiniApp, setIsMiniApp] = useState(false);
   const { address } = useAccount();
 
   useEffect(() => {
@@ -34,28 +37,37 @@ function MiniAppContextProvider({ children }: { children: ReactNode }) {
       if (typeof window === 'undefined') return;
 
       try {
-        // Call ready() when page loads to hide splash screen
-        await sdk.actions.ready();
+        // Use SDK to detect if we're in a mini-app
+        const inMiniApp = await sdk.isInMiniApp();
+        setIsMiniApp(inMiniApp);
 
-        // Get user data from context (context is a Promise)
-        const context = await sdk.context;
-        if (context?.user) {
-          const user = context.user;
-          setFid(user.fid);
+        if (inMiniApp) {
+          // Call ready() when page loads to hide splash screen
+          await sdk.actions.ready();
 
-          if (user.displayName) {
-            setUsername(user.displayName);
-          } else if (user.username) {
-            setUsername(user.username);
+          // Get user data from context (context is a Promise)
+          const context = await sdk.context;
+          if (context?.user) {
+            const user = context.user;
+            setFid(user.fid);
+
+            if (user.displayName) {
+              setUsername(user.displayName);
+            } else if (user.username) {
+              setUsername(user.username);
+            } else {
+              setUsername('Guest');
+            }
+
+            if (user.pfpUrl) {
+              setProfilePicture(user.pfpUrl);
+            }
           } else {
             setUsername('Guest');
           }
-
-          if (user.pfpUrl) {
-            setProfilePicture(user.pfpUrl);
-          }
         } else {
-          setUsername('Guest');
+          // Not in mini-app, set defaults for web
+          setUsername(null);
         }
 
         setIsReady(true);
@@ -63,6 +75,7 @@ function MiniAppContextProvider({ children }: { children: ReactNode }) {
         console.error('Error initializing Farcaster Mini App:', error);
         // Fallback for development
         setUsername('DemoUser');
+        setIsMiniApp(false);
         setIsReady(true);
       }
     };
@@ -71,7 +84,7 @@ function MiniAppContextProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <MiniAppContext.Provider value={{ username, walletAddress: address || null, isReady, fid, profilePicture }}>
+    <MiniAppContext.Provider value={{ username, walletAddress: address || null, isReady, fid, profilePicture, isMiniApp }}>
       {children}
     </MiniAppContext.Provider>
   );

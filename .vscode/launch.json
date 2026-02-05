@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug scan-blocks",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--import", "tsx", "--inspect-brk"],
+      "args": ["${workspaceFolder}/scripts/scan-blocks.ts"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": { "NODE_OPTIONS": "", "START_BLOCK_NUMBER": "41427731" }
+    }
+  ]
+}

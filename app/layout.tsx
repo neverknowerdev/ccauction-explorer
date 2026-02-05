@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
+import { ConnectWalletButtonWrapper } from "@/components/ConnectWalletButtonWrapper";
 
 export const metadata: Metadata = {
   title: "CCA Auctions Explorer",
@@ -15,7 +16,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <Providers>{children}</Providers>
+        <Providers>
+          <ConnectWalletButtonWrapper />
+          {children}
+        </Providers>
       </body>
     </html>
   );
