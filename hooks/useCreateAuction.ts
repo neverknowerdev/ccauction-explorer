@@ -178,7 +178,8 @@ export function useCreateAuction(): UseCreateAuctionResult {
       const maxCurrencyAmountForLP = parseEther(formData.maxRaisedLimit || formData.targetRaisedValue || '0');
       
       // Generate auction steps
-      const auctionSteps = generateAuctionSteps(startBlock, endBlock, formData.tokenReleasePreset);
+      const durationBlocks = Number(endBlock - startBlock);
+      const auctionSteps = generateAuctionSteps(durationBlocks, formData.tokenReleasePreset);
       const auctionStepsData = encodeAuctionSteps(auctionSteps);
       
       // Operator and position recipient
@@ -217,42 +218,52 @@ export function useCreateAuction(): UseCreateAuctionResult {
       };
       
       // Encode strategy config data
+      const migratorTuple: readonly [
+        bigint,
+        `0x${string}`,
+        number,
+        number,
+        number,
+        `0x${string}`,
+        `0x${string}`,
+        bigint,
+        `0x${string}`,
+        bigint,
+      ] = [
+        migratorParams.migrationBlock,
+        migratorParams.currency,
+        migratorParams.poolLPFee,
+        migratorParams.poolTickSpacing,
+        migratorParams.tokenSplit,
+        migratorParams.initializerFactory,
+        migratorParams.positionRecipient as `0x${string}`,
+        migratorParams.sweepBlock,
+        migratorParams.operator as `0x${string}`,
+        migratorParams.maxCurrencyAmountForLP,
+      ];
+      const auctionParamsEncoded = encodeAbiParameters(
+        parseAbiParameters(
+          '(address, address, address, uint64, uint64, uint64, uint256, address, uint256, uint128, bytes)'
+        ),
+        [[
+          auctionParams.currency,
+          auctionParams.tokensRecipient,
+          auctionParams.fundsRecipient,
+          auctionParams.startBlock,
+          auctionParams.endBlock,
+          auctionParams.claimBlock,
+          auctionParams.tickSpacing,
+          auctionParams.validationHook,
+          auctionParams.floorPrice,
+          auctionParams.requiredCurrencyRaised,
+          auctionParams.auctionStepsData,
+        ]],
+      );
       const strategyConfigData = encodeAbiParameters(
         parseAbiParameters(
           '((uint64, address, uint24, int24, uint24, address, address, uint64, address, uint128), bytes)'
         ),
-        [
-          [
-            migratorParams.migrationBlock,
-            migratorParams.currency,
-            migratorParams.poolLPFee,
-            migratorParams.poolTickSpacing,
-            migratorParams.tokenSplit,
-            migratorParams.initializerFactory,
-            migratorParams.positionRecipient,
-            migratorParams.sweepBlock,
-            migratorParams.operator,
-            migratorParams.maxCurrencyAmountForLP,
-          ],
-          encodeAbiParameters(
-            parseAbiParameters(
-              '(address, address, address, uint64, uint64, uint64, uint256, address, uint256, uint128, bytes)'
-            ),
-            [[
-              auctionParams.currency,
-              auctionParams.tokensRecipient,
-              auctionParams.fundsRecipient,
-              auctionParams.startBlock,
-              auctionParams.endBlock,
-              auctionParams.claimBlock,
-              auctionParams.tickSpacing,
-              auctionParams.validationHook,
-              auctionParams.floorPrice,
-              auctionParams.requiredCurrencyRaised,
-              auctionParams.auctionStepsData,
-            ]],
-          ),
-        ],
+        [[migratorTuple, auctionParamsEncoded]],
       );
       
       // Encode token metadata

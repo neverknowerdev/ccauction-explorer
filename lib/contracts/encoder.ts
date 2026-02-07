@@ -17,6 +17,20 @@ export const MPS_TOTAL = 10_000_000;
 /** Q96 multiplier for Uniswap V4 price encoding */
 export const Q96 = BigInt(2) ** BigInt(96);
 
+/** Fee tier label -> LP fee (Uniswap hundredths of a basis point: 500 = 0.05%, 3000 = 0.3%, 10000 = 1%) */
+export const FEE_TIER_TO_LP_FEE: Record<string, number> = {
+  '0.05%': 500,
+  '0.3%': 3000,
+  '1.0%': 10000,
+};
+
+/** Fee tier label -> tick spacing (Uniswap V3: 10 for 0.05%, 60 for 0.3%, 200 for 1%) */
+export const FEE_TIER_TO_TICK_SPACING: Record<string, number> = {
+  '0.05%': 10,
+  '0.3%': 60,
+  '1.0%': 200,
+};
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -142,6 +156,9 @@ export function generateSalt(): Hex {
 // ============================================================================
 
 export type AuctionPreset = 'flat' | 'front-loaded' | 'back-loaded' | 'uniswap-example';
+
+/** Alias for UI/form usage (same as AuctionPreset) */
+export type TokenReleasePreset = AuctionPreset;
 
 /**
  * Generate auction steps based on a preset
