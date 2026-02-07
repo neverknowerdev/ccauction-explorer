@@ -2,10 +2,13 @@
  * Database query utilities
  */
 
-import { eq, and, max, sql } from 'drizzle-orm';
+import { eq, and, desc, max, sql } from 'drizzle-orm';
 import { db } from './index';
 import {
   auctions,
+  bids,
+  chains,
+  ethPrices,
   processedLogs,
   processedLogsErrors,
   logScans,
@@ -55,9 +58,13 @@ export async function getAuctionId(
 export async function getAuctionWithCurrency(
   chainId: number,
   auctionAddress: string
-): Promise<{ id: number; currency: string | null } | null> {
+): Promise<{ id: number; currency: string | null; isCurrencyStablecoin: boolean | null } | null> {
   const result = await db
-    .select({ id: auctions.id, currency: auctions.currency })
+    .select({
+      id: auctions.id,
+      currency: auctions.currency,
+      isCurrencyStablecoin: auctions.isCurrencyStablecoin,
+    })
     .from(auctions)
     .where(
       and(
@@ -70,14 +77,21 @@ export async function getAuctionWithCurrency(
   return result.length > 0 ? result[0] : null;
 }
 
-/** Token info stored in auctions.token jsonb */
-export type AuctionTokenJson = {
+/** Token info stored in auctions.token_info jsonb */
+export type AuctionTokenInfoJson = {
   address?: string;
   name?: string;
   symbol?: string;
   decimals?: number;
   totalSupply?: string;
+  icon?: string | null;
+  logo?: string | null;
+  description?: string | null;
+  categories?: string[] | null;
 } | null;
+
+/** Link map stored in auctions.links jsonb */
+export type AuctionLinksJson = Record<string, string> | null;
 
 /**
  * Get auction ID and token (with decimals) by chain and address for TokensClaimed.
@@ -86,9 +100,9 @@ export type AuctionTokenJson = {
 export async function getAuctionWithToken(
   chainId: number,
   auctionAddress: string
-): Promise<{ id: number; token: AuctionTokenJson } | null> {
+): Promise<{ id: number; tokenInfo: AuctionTokenInfoJson } | null> {
   const result = await db
-    .select({ id: auctions.id, token: auctions.token })
+    .select({ id: auctions.id, tokenInfo: auctions.tokenInfo })
     .from(auctions)
     .where(
       and(
@@ -100,7 +114,7 @@ export async function getAuctionWithToken(
 
   if (result.length === 0) return null;
   const row = result[0];
-  return { id: row.id, token: row.token as AuctionTokenJson };
+  return { id: row.id, tokenInfo: row.tokenInfo as AuctionTokenInfoJson };
 }
 
 /**
@@ -108,6 +122,16 @@ export async function getAuctionWithToken(
  */
 export async function getEventTopics(): Promise<EventTopic[]> {
   return db.select().from(eventTopics);
+}
+
+export async function getLatestEthPrice(): Promise<string | null> {
+  const result = await db
+    .select({ price: ethPrices.price })
+    .from(ethPrices)
+    .orderBy(desc(ethPrices.timestamp))
+    .limit(1);
+
+  return result.length > 0 ? (result[0].price as string) : null;
 }
 
 // =============================================================================
@@ -175,4 +199,116 @@ export async function getAuctionNotFoundAddresses(): Promise<
       chainId: r.chainId,
       contractAddress: r.contractAddress.toLowerCase(),
     }));
+}
+
+// =============================================================================
+// AUCTIONS (API)
+// =============================================================================
+
+export async function listAuctions(limit = 50) {
+  return db
+    .select({
+      id: auctions.id,
+      chainId: auctions.chainId,
+      chainName: chains.name,
+      status: auctions.status,
+      startTime: auctions.startTime,
+      endTime: auctions.endTime,
+      tokenInfo: auctions.tokenInfo,
+      links: auctions.links,
+      currency: auctions.currency,
+      currencyName: auctions.currencyName,
+      currentClearingPrice: auctions.currentClearingPrice,
+      collectedAmount: auctions.collectedAmount,
+      targetAmount: auctions.targetAmount,
+      floorPrice: auctions.floorPrice,
+      extraFundsDestination: auctions.extraFundsDestination,
+      supplyInfo: auctions.supplyInfo,
+      bidsCount: sql<number>`(select count(*) from ${bids} where ${bids.auctionId} = ${auctions.id})`,
+    })
+    .from(auctions)
+    .leftJoin(chains, eq(auctions.chainId, chains.id))
+    .orderBy(desc(auctions.updatedAt))
+    .limit(limit);
+}
+
+export async function getAuctionById(auctionId: number) {
+  const result = await db
+    .select({
+      id: auctions.id,
+      chainId: auctions.chainId,
+      chainName: chains.name,
+      status: auctions.status,
+      startTime: auctions.startTime,
+      endTime: auctions.endTime,
+      tokenInfo: auctions.tokenInfo,
+      links: auctions.links,
+      currency: auctions.currency,
+      currencyName: auctions.currencyName,
+      currentClearingPrice: auctions.currentClearingPrice,
+      collectedAmount: auctions.collectedAmount,
+      targetAmount: auctions.targetAmount,
+      floorPrice: auctions.floorPrice,
+      extraFundsDestination: auctions.extraFundsDestination,
+      supplyInfo: auctions.supplyInfo,
+      factoryAddress: auctions.factoryAddress,
+      validationHookAddress: auctions.validationHookAddress,
+      auctionStepsRaw: auctions.auctionStepsRaw,
+    })
+    .from(auctions)
+    .leftJoin(chains, eq(auctions.chainId, chains.id))
+    .where(eq(auctions.id, auctionId))
+    .limit(1);
+
+  return result[0] ?? null;
+}
+
+export async function listBidsForAuction(auctionId: number) {
+  return db
+    .select({
+      bidId: bids.bidId,
+      amount: bids.amount,
+      amountUsd: bids.amountUsd,
+      maxPrice: bids.maxPrice,
+      status: bids.status,
+      time: bids.time,
+      filledTokens: bids.filledTokens,
+    })
+    .from(bids)
+    .where(eq(bids.auctionId, auctionId))
+    .orderBy(desc(bids.maxPrice));
+}
+
+export async function listBidsForAuctionByAddress(
+  auctionId: number,
+  bidderAddress: string
+) {
+  return db
+    .select({
+      bidId: bids.bidId,
+      amount: bids.amount,
+      amountUsd: bids.amountUsd,
+      maxPrice: bids.maxPrice,
+      status: bids.status,
+      time: bids.time,
+      filledTokens: bids.filledTokens,
+    })
+    .from(bids)
+    .where(
+      and(
+        eq(bids.auctionId, auctionId),
+        eq(bids.address, bidderAddress.toLowerCase())
+      )
+    )
+    .orderBy(desc(bids.maxPrice));
+}
+
+export async function countBidsForAuction(auctionId: number): Promise<number> {
+  const result = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(bids)
+    .where(eq(bids.auctionId, auctionId))
+    .limit(1);
+
+  return Number(result[0]?.count ?? 0);
 }

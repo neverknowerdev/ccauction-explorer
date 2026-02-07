@@ -16,6 +16,7 @@ import { eq } from 'drizzle-orm';
 import {
   db,
   chains,
+  ethPrices,
   getLatestScannedBlock,
   updateLatestScannedBlock,
 } from '@/lib/db';
@@ -24,7 +25,7 @@ import {
   scanBlocks,
   getCachedEventTopics,
 } from '@/lib/log-processing';
-import { createAlchemyClient } from '@/lib/providers';
+import { createAlchemyClient, getEthUsdPrice } from '@/lib/providers';
 
 // =============================================================================
 // CONFIGURATION
@@ -64,6 +65,22 @@ export async function GET(request: NextRequest) {
   };
 
   try {
+    // =========================================================================
+    // STEP 0: Fetch current ETH price and store (so bid amount_usd can use it during this run)
+    // =========================================================================
+    try {
+      const priceUsd = await getEthUsdPrice();
+      if (priceUsd != null && Number.isFinite(priceUsd)) {
+        await db.insert(ethPrices).values({
+          timestamp: new Date(),
+          price: priceUsd.toString(),
+        });
+        console.log(`Cron: Stored ETH price $${priceUsd}`);
+      }
+    } catch (priceErr) {
+      console.warn('Cron: Could not fetch/store ETH price:', priceErr instanceof Error ? priceErr.message : priceErr);
+    }
+
     // =========================================================================
     // STEP 1: Scan all chains for new events
     // =========================================================================

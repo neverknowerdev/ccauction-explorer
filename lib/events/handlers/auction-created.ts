@@ -16,14 +16,21 @@ import { getCurrencyName, getCurrencyDecimals, currencyAmountToHuman } from '@/l
 import { q96ToHuman } from '@/utils/format';
 import type { EventContext } from '../types';
 import { missingParamsError } from '../errors';
+import { getTokenInfo, type CoinGeckoTokenInfo } from '@/lib/providers';
 
-function buildTokenJson(info: AuctionInfo) {
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+function buildTokenInfoJson(info: AuctionInfo, meta: CoinGeckoTokenInfo | null) {
   return {
     address: info.tokenAddress,
     name: info.tokenName,
     symbol: info.tokenSymbol,
     decimals: info.tokenDecimals,
     totalSupply: info.tokenTotalSupply.toString(),
+    icon: meta?.icon ?? null,
+    logo: meta?.logo ?? null,
+    description: meta?.description ?? null,
+    categories: meta?.categories && meta.categories.length > 0 ? meta.categories : null,
   };
 }
 
@@ -39,6 +46,35 @@ function buildSupplyInfoJson(info: AuctionInfo) {
     ownerPercent: info.tokenSupplyInfo.ownerPercent,
     tokenMintInfo: info.tokenMintInfo,
   };
+}
+
+function buildLinksJson(meta: CoinGeckoTokenInfo | null): Record<string, string> | null {
+  if (!meta) return null;
+  const mapping: Record<string, keyof CoinGeckoTokenInfo> = {
+    Website: 'website',
+    Twitter: 'twitter',
+    Discord: 'discord',
+    Telegram: 'telegram',
+    GitHub: 'github',
+    Reddit: 'reddit',
+    Facebook: 'facebook',
+    Blog: 'blog',
+    LinkedIn: 'linkedin',
+    Whitepaper: 'whitepaper',
+  };
+  const links: Record<string, string> = {};
+  for (const [label, key] of Object.entries(mapping)) {
+    const value = meta[key];
+    if (typeof value === 'string' && value.trim() !== '') {
+      links[label] = value.trim();
+    }
+  }
+  return Object.keys(links).length > 0 ? links : null;
+}
+
+function isStablecoin(categories: string[] | null | undefined): boolean {
+  if (!categories || categories.length === 0) return false;
+  return categories.some((c) => c.toLowerCase().includes('stablecoin'));
 }
 
 export async function handleAuctionCreated(ctx: EventContext): Promise<void> {
@@ -63,7 +99,7 @@ export async function handleAuctionCreated(ctx: EventContext): Promise<void> {
       chainId: ctx.chainId,
       address: auctionAddress,
       status: 'created',
-      token: tokenAddress ? { address: tokenAddress } : null,
+      tokenInfo: tokenAddress ? { address: tokenAddress } : null,
       processedLogId: ctx.processedLogId,
       createdAt: ctx.timestamp,
       updatedAt: ctx.timestamp,
@@ -84,16 +120,34 @@ export async function handleAuctionCreated(ctx: EventContext): Promise<void> {
   if (!isChainSupported(ctx.chainId)) return;
 
   try {
+    // RPC: tx, receipt, block, token reads — usually 1–3s
     const info = await fetchAuctionInfoFromTx(ctx.transactionHash as `0x${string}`, ctx.chainId);
-    const tokenJson = buildTokenJson(info);
+    const currencyAddress = (info.parameters.currency ?? ZERO_ADDRESS).toLowerCase();
+
+    // Run external APIs in parallel so we wait for the slowest, not the sum (saves ~5–15s)
+    const [tokenMeta, currencyMeta, sourceCodeHashResult] = await Promise.all([
+      getTokenInfo(info.tokenAddress, info.chainId),
+      currencyAddress === ZERO_ADDRESS ? Promise.resolve(null) : getTokenInfo(currencyAddress as `0x${string}`, info.chainId),
+      getContractSourceCodeHash(auctionAddress as `0x${string}`, ctx.chainId).catch(() => null),
+    ]);
+
+    const tokenInfoJson = buildTokenInfoJson(info, tokenMeta);
+    const linksJson = buildLinksJson(tokenMeta);
     const supplyInfoJson = buildSupplyInfoJson(info);
 
-    let sourceCodeHash: string | null = null;
-    try {
-      sourceCodeHash = await getContractSourceCodeHash(auctionAddress as `0x${string}`, ctx.chainId);
-    } catch (err) {
-      console.warn(`AuctionCreated: could not get source code hash for ${auctionAddress}:`, err);
+    let currencyName = getCurrencyName(info.parameters.currency);
+    let isCurrencyStablecoin = false;
+    if (currencyAddress !== ZERO_ADDRESS && currencyMeta) {
+      if (currencyName === 'Unknown') {
+        currencyName =
+          currencyMeta?.tokenSymbol ??
+          currencyMeta?.tokenName ??
+          currencyName;
+      }
+      isCurrencyStablecoin = isStablecoin(currencyMeta?.categories);
     }
+
+    const sourceCodeHash = sourceCodeHashResult;
 
     // Convert targetAmount from raw currency units to human-readable decimal
     // Use requiredCurrencyRaised which is the currency target, not auctionAmount (which is token quantity)
@@ -108,6 +162,8 @@ export async function handleAuctionCreated(ctx: EventContext): Promise<void> {
       .set({
         status: info.auctionStatus,
         creatorAddress: info.from,
+        factoryAddress: info.factoryAddress,
+        validationHookAddress: info.parameters.validationHook,
         startTime: info.timeInfo.startTime,
         endTime: info.timeInfo.endTime,
         floorPrice: q96ToHuman(info.parameters.floorPrice),
@@ -115,9 +171,12 @@ export async function handleAuctionCreated(ctx: EventContext): Promise<void> {
         targetAmount,
         auctionTokenSupply,
         currency: info.parameters.currency,
-        currencyName: getCurrencyName(info.parameters.currency),
-        token: tokenJson,
+        currencyName,
+        isCurrencyStablecoin,
+        tokenInfo: tokenInfoJson,
+        links: linksJson,
         supplyInfo: supplyInfoJson,
+        auctionStepsRaw: info.auctionSteps,
         extraFundsDestination: info.extraFundsDestination,
         sourceCodeHash,
         updatedAt: new Date(),

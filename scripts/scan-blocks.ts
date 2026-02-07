@@ -18,7 +18,7 @@
 import type { Hex } from 'viem';
 import { eq } from 'drizzle-orm';
 import './helpers/load-env';
-import { db, chains, getLatestProcessedBlock } from '../lib/db';
+import { db, chains, ethPrices, getLatestProcessedBlock } from '../lib/db';
 import { getDefaultStartBlock } from '../lib/chains';
 import {
   scanBlocks,
@@ -30,6 +30,7 @@ import {
   resetAlchemyRequestCount,
   getEtherscanRequestCount,
   resetEtherscanRequestCount,
+  getEthUsdPrice,
 } from '../lib/providers';
 
 // =============================================================================
@@ -96,6 +97,23 @@ async function main() {
     console.log(`CHAINS_TO_SCAN: ${chainsFilter.join(', ')}`);
   } else {
     console.log('Chains: all active (from DB)');
+  }
+  console.log('');
+
+  // Fetch and store ETH price first so bid amount_usd can use it during this run
+  try {
+    const priceUsd = await getEthUsdPrice();
+    if (priceUsd != null && Number.isFinite(priceUsd)) {
+      await db.insert(ethPrices).values({
+        timestamp: new Date(),
+        price: priceUsd.toString(),
+      });
+      console.log(`ETH price stored: $${priceUsd}`);
+    } else {
+      console.warn('ETH price unavailable (CoinGecko), continuing without new price');
+    }
+  } catch (err) {
+    console.warn('Could not fetch/store ETH price:', err instanceof Error ? err.message : err);
   }
   console.log('');
 

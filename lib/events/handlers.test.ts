@@ -110,15 +110,20 @@ vi.mock('@/lib/db', () => {
       const auction = mockState.auctions.find(
         a => a.chainId === chainId && a.address === auctionAddress.toLowerCase()
       );
-      return Promise.resolve(auction ? { id: auction.id, currency: auction.currency ?? null } : null);
+      return Promise.resolve(auction ? {
+        id: auction.id,
+        currency: auction.currency ?? null,
+        isCurrencyStablecoin: auction.isCurrencyStablecoin ?? null,
+      } : null);
     }),
     getAuctionWithToken: vi.fn().mockImplementation((chainId: number, auctionAddress: string) => {
       const auction = mockState.auctions.find(
         a => a.chainId === chainId && a.address === auctionAddress.toLowerCase()
       );
-      const token = auction?.token ?? { decimals: 18 };
-      return Promise.resolve(auction ? { id: auction.id, token } : null);
+      const tokenInfo = auction?.tokenInfo ?? { decimals: 18 };
+      return Promise.resolve(auction ? { id: auction.id, tokenInfo } : null);
     }),
+    getLatestEthPrice: vi.fn().mockResolvedValue(null),
   };
 });
 

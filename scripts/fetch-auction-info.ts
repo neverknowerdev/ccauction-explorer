@@ -7,11 +7,15 @@
  * Examples:
  *   yarn fetch-auction-info 0x3ed244ce1b5ae114a17bd33da50857ec0e6d6b44caa44d049c13ec6e4c6c416d
  *   yarn fetch-auction-info 0x3b37030109a8b943357ecd6920e66fa42ad46547905d94eefd3c6193a4fb0414 1
+ *
+ * Token website and socials (from CoinGecko free API) are shown when COINGECKO_DEMO_API_KEY is set.
  */
 
 import type { Hex } from 'viem';
+import './helpers/load-env';
 import { SUPPORTED_CHAINS, SUPPORTED_CHAIN_IDS } from '../lib/chains';
 import { fetchAuctionInfoFromTx, printAuctionInfo } from '../lib/auction';
+import { getTokenInfo } from '../lib/providers';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -50,7 +54,11 @@ async function main() {
 
   try {
     const info = await fetchAuctionInfoFromTx(txHash, chainId);
-    printAuctionInfo(info, config.explorer);
+    let tokenInfo = await getTokenInfo(info.tokenAddress, chainId);
+    if (!tokenInfo) {
+      tokenInfo = await getTokenInfo(info.auctionAddress, chainId);
+    }
+    printAuctionInfo(info, config.explorer, tokenInfo);
   } catch (error) {
     console.error('\nError:', (error as Error).message);
     process.exit(1);

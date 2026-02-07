@@ -1,5 +1,5 @@
 /**
- * External provider utilities: Alchemy (RPC), Etherscan (contract creation & source).
+ * External provider utilities: Alchemy (RPC), Etherscan (contract creation & source), CoinGecko (token info).
  */
 
 export {
@@ -20,4 +20,7 @@ export {
   normalizeSourceCode,
   getEtherscanRequestCount,
   resetEtherscanRequestCount,
+  type EtherscanTokenInfo,
 } from './etherscan';
+
+export { getTokenInfo, getEthUsdPrice, type CoinGeckoTokenInfo } from './coingecko';

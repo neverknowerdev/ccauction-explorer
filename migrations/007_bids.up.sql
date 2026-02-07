@@ -10,6 +10,7 @@ CREATE TABLE bids (
   address           text          NOT NULL,
   user_id           uuid          REFERENCES users (id),
   amount            numeric(30,18) NOT NULL,
+  amount_usd        numeric(30,18),
   max_price         numeric(30,18) NOT NULL,
   clearing_price    numeric(30,18),
   filled_tokens     numeric(30,18),

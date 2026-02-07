@@ -6,11 +6,19 @@
  */
 
 import { db, bids } from '@/lib/db';
-import { getAuctionWithCurrency } from '@/lib/db';
+import { getAuctionWithCurrency, getLatestEthPrice } from '@/lib/db';
 import { q96ToHuman } from '@/utils/format';
 import { getCurrencyDecimals, currencyAmountToHuman } from '@/lib/currencies';
+import Decimal from 'decimal.js';
 import type { EventContext } from '../types';
 import { auctionNotFoundError, missingParamsError } from '../errors';
+
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+function toUsdAmount(amount: string, usdPrice: string): string {
+  const result = new Decimal(amount).mul(new Decimal(usdPrice));
+  return result.toFixed(18).replace(/\.?0+$/, '');
+}
 
 export async function handleBidSubmitted(ctx: EventContext): Promise<void> {
   const auctionAddress = ctx.contractAddress.toLowerCase();
@@ -38,6 +46,19 @@ export async function handleBidSubmitted(ctx: EventContext): Promise<void> {
   // Convert amount from raw currency units to human-readable decimal
   const currencyDecimals = getCurrencyDecimals(auction.currency);
   const amount = currencyAmountToHuman(rawAmount, currencyDecimals);
+  let amountUsd: string | null = null;
+
+  if (auction.isCurrencyStablecoin) {
+    amountUsd = amount;
+  } else if (auction.currency?.toLowerCase() === ZERO_ADDRESS) {
+    const latestEthPrice = await getLatestEthPrice();
+    if (latestEthPrice == null) {
+      throw new Error(
+        'BidSubmitted: ETH price required for amount_usd but no record in eth_prices. Run scan-blocks (or cron eth-prices) first to fetch and store ETH price.'
+      );
+    }
+    amountUsd = toUsdAmount(amount, latestEthPrice);
+  }
 
   // Insert bid with ON CONFLICT DO NOTHING (composite PK: auction_id, bid_id)
   const inserted = await db
@@ -47,6 +68,7 @@ export async function handleBidSubmitted(ctx: EventContext): Promise<void> {
       bidId,
       address: bidderAddress,
       amount,
+      amountUsd,
       maxPrice,
       status: 'open',
       time: ctx.timestamp,

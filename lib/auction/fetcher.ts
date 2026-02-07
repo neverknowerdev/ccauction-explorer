@@ -18,7 +18,7 @@ import {
   type PublicClient,
 } from 'viem';
 import { SUPPORTED_CHAINS, SUPPORTED_CHAIN_IDS, isChainSupported as isChainSupportedInConfig } from '@/lib/chains';
-import { createAlchemyClient, getContractCreationTxHash } from '@/lib/providers';
+import { createAlchemyClient, getContractCreationTxHash, type CoinGeckoTokenInfo, type EtherscanTokenInfo } from '@/lib/providers';
 
 // ============================================================================
 // Known Contracts
@@ -742,7 +742,24 @@ export function isChainSupported(chainId: number): boolean {
 // Output Formatting (for CLI)
 // ============================================================================
 
-export function printAuctionInfo(info: AuctionInfo, explorerUrl: string): void {
+const TOKEN_INFO_LABELS: Record<keyof EtherscanTokenInfo, string> = {
+  website: 'Website',
+  twitter: 'Twitter',
+  discord: 'Discord',
+  telegram: 'Telegram',
+  github: 'GitHub',
+  reddit: 'Reddit',
+  facebook: 'Facebook',
+  blog: 'Blog',
+  linkedin: 'LinkedIn',
+  whitepaper: 'Whitepaper',
+};
+
+export function printAuctionInfo(
+  info: AuctionInfo,
+  explorerUrl: string,
+  tokenInfo?: EtherscanTokenInfo | CoinGeckoTokenInfo | null,
+): void {
   const divider = '═'.repeat(70);
   const subDivider = '─'.repeat(70);
 
@@ -780,6 +797,45 @@ export function printAuctionInfo(info: AuctionInfo, explorerUrl: string): void {
   console.log(`  Decimals:     ${info.tokenDecimals}`);
   console.log(`  Total Supply: ${formatUnits(info.tokenTotalSupply, info.tokenDecimals)} ${info.tokenSymbol}`);
   console.log(`  Explorer:     ${explorerUrl}/token/${info.tokenAddress}`);
+
+  console.log('\n🌐 WEBSITE & SOCIALS');
+  console.log(subDivider);
+  if (tokenInfo) {
+    const linkKeys = new Set<keyof EtherscanTokenInfo>(['website', 'twitter', 'discord', 'telegram', 'github', 'reddit', 'facebook', 'blog', 'linkedin', 'whitepaper']);
+    const entries = (Object.entries(tokenInfo) as [keyof EtherscanTokenInfo, string | null][]).filter(
+      ([key, v]) => linkKeys.has(key) && v != null && v !== '',
+    );
+    if (entries.length > 0) {
+      for (const [key, value] of entries) {
+        const label = TOKEN_INFO_LABELS[key];
+        console.log(`  ${label}:       ${value}`);
+      }
+    }
+    const extended = tokenInfo as CoinGeckoTokenInfo | undefined;
+    const hasExtended = extended?.description || extended?.image || (extended?.categories?.length ?? 0) > 0;
+    if (entries.length === 0 && !hasExtended) {
+      console.log('  (no links or metadata for this contract)');
+    }
+    if (hasExtended && extended?.description) {
+      const maxLen = 400;
+      const text = extended.description.length > maxLen ? `${extended.description.slice(0, maxLen)}...` : extended.description;
+      console.log('\n📝 DESCRIPTION');
+      console.log(subDivider);
+      console.log(`  ${text.split('\n').join('\n  ')}`);
+    }
+    if (hasExtended && extended?.image) {
+      console.log('\n🖼️  IMAGE');
+      console.log(subDivider);
+      console.log(`  ${extended.image}`);
+    }
+    if (hasExtended && extended?.categories?.length) {
+      console.log('\n🏷️  CATEGORIES');
+      console.log(subDivider);
+      console.log(`  ${extended.categories.join(', ')}`);
+    }
+  } else {
+    console.log('  (not available — set COINGECKO_DEMO_API_KEY in .env.local; get free key at https://www.coingecko.com/en/developers/dashboard)');
+  }
 
   console.log('\n🔐 TOKEN MINTABILITY');
   console.log(subDivider);

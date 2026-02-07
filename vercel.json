@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/scan-events",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/eth-prices",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

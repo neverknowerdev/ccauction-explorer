@@ -67,6 +67,15 @@ export const chains = pgTable('chains', {
   isActive: boolean('is_active').notNull().default(true),
 });
 
+// ETH prices table (USD prices over time)
+export const ethPrices = pgTable('eth_prices', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  timestamp: timestamp('timestamp', { withTimezone: true }).notNull(),
+  price: numeric('price', { precision: 30, scale: 18 }).notNull(),
+}, (table) => [
+  index('idx_eth_prices_timestamp').on(table.timestamp),
+]);
+
 // Event topics table
 export const eventTopics = pgTable('event_topics', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
@@ -116,17 +125,24 @@ export const auctions = pgTable('auctions', {
   endTime: timestamp('end_time', { withTimezone: true }),
   status: auctionStatusEnum('status').notNull().default('created'),
   creatorAddress: text('creator_address'),
+  factoryAddress: text('factory_address'),
+  validationHookAddress: text('validation_hook_address'),
   safetyCheckups: jsonb('safety_checkups').notNull().default({}),
-  token: jsonb('token'),
+  tokenInfo: jsonb('token_info'),
+  links: jsonb('links'),
   currency: text('currency'),
   currencyName: text('currency_name'),
+  isCurrencyStablecoin: boolean('is_currency_stablecoin'),
   targetAmount: numeric('target_amount', { precision: 30, scale: 18 }),
   auctionTokenSupply: numeric('auction_token_supply', { precision: 30, scale: 18 }),
   collectedAmount: numeric('collected_amount', { precision: 30, scale: 18 }),
+  collectedAmountUsd: numeric('collected_amount_usd', { precision: 30, scale: 18 }),
+  aboveTestThreshold: boolean('above_test_threshold').notNull().default(false),
   floorPrice: numeric('floor_price', { precision: 30, scale: 18 }),
   currentClearingPrice: numeric('current_clearing_price', { precision: 30, scale: 18 }),
   extraFundsDestination: extraFundsDestinationEnum('extra_funds_destination'),
   supplyInfo: jsonb('supply_info'),
+  auctionStepsRaw: jsonb('auction_steps_raw'),
   processedLogId: bigint('processed_log_id', { mode: 'number' }).references(() => processedLogs.id),
   sourceCodeHash: text('source_code_hash'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -134,7 +150,7 @@ export const auctions = pgTable('auctions', {
 }, (table) => [
   unique('auctions_chain_address_unique').on(table.chainId, table.address),
   uniqueIndex('idx_auctions_address').on(table.address),
-  index('idx_auctions_token_address').on(sql`(${table.token}->>'address')`).where(sql`${table.token} IS NOT NULL AND ${table.token}->>'address' IS NOT NULL`),
+  index('idx_auctions_token_address').on(sql`(${table.tokenInfo}->>'address')`).where(sql`${table.tokenInfo} IS NOT NULL AND ${table.tokenInfo}->>'address' IS NOT NULL`),
   index('idx_auctions_processed_log_id').on(table.processedLogId),
 ]);
 
@@ -145,6 +161,7 @@ export const bids = pgTable('bids', {
   address: text('address').notNull(),
   userId: uuid('user_id').references(() => users.id),
   amount: numeric('amount', { precision: 30, scale: 18 }).notNull(),
+  amountUsd: numeric('amount_usd', { precision: 30, scale: 18 }),
   maxPrice: numeric('max_price', { precision: 30, scale: 18 }).notNull(),
   clearingPrice: numeric('clearing_price', { precision: 30, scale: 18 }),
   filledTokens: numeric('filled_tokens', { precision: 30, scale: 18 }),
@@ -195,6 +212,9 @@ export const logScans = pgTable('log_scans', {
 // Type exports
 export type Chain = typeof chains.$inferSelect;
 export type NewChain = typeof chains.$inferInsert;
+
+export type EthPrice = typeof ethPrices.$inferSelect;
+export type NewEthPrice = typeof ethPrices.$inferInsert;
 
 export type EventTopic = typeof eventTopics.$inferSelect;
 export type NewEventTopic = typeof eventTopics.$inferInsert;

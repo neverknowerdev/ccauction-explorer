@@ -109,11 +109,6 @@ export async function processLogEntry(
       error: 'Missing topic0',
     };
   }
-
-  if (topic0 === '0x8a8cc462d00726e0f8c031dd2d6b9dcdf0794fb27a88579830dadee27d43ea7c') {
-    console.log('[processLogEntry] topic0', topic0, 'log', log);
-  }
-
   // Find matching event topic
   const eventTopic = findEventTopic(knownEventTopics, topic0);
 

@@ -2,10 +2,152 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useAccount } from 'wagmi';
-import { useDynamicContext } from '@dynamic-labs/sdk-react-core';
 import BottomNav from '@/components/BottomNav';
-import type { AuctionBid, AuctionDetail } from '@/lib/auctions/types';
+
+// Types
+interface TokenSupplyInfo {
+  totalSupply: number;
+  auctionSupply: number;
+  poolSupply: number;
+  creatorRetained: number;
+}
+
+interface Bid {
+  id: string;
+  maxPrice: number;
+  amount: number;
+  amountUsd: number;
+  filledPercent: number;
+  isUserBid: boolean;
+}
+
+interface AuctionData {
+  id: string;
+  // Token Info
+  tokenTicker: string;
+  tokenName: string;
+  tokenDescription: string;
+  tokenWebsite: string;
+  tokenImage: string;
+  tokenDecimals: number;
+  supplyInfo: TokenSupplyInfo;
+
+  // Auction Info
+  status: 'created' | 'planned' | 'active' | 'graduated' | 'claimable' | 'ended';
+  startTime: Date;
+  endTime: Date;
+
+  // Price Info
+  floorPrice: number;
+  currentClearingPrice: number;
+  maxBidPrice: number;
+
+  // Raised Info
+  raisedAmount: number;
+  targetAmount: number;
+
+  // Extra funds destination (null when not set in DB, e.g. legacy rows)
+  extraFundsDestination: 'pool' | 'creator' | null;
+
+  // Bids
+  bids: Bid[];
+
+  // Currency
+  currency: string;
+}
+
+// Mock auction data
+const mockAuctions: Record<string, AuctionData> = {
+  '1': {
+    id: '1',
+    tokenTicker: 'PUNK',
+    tokenName: 'CryptoPunk Token',
+    tokenDescription: 'CryptoPunk Token is the native token of the CryptoPunk ecosystem, enabling governance, staking rewards, and exclusive access to community features.',
+    tokenWebsite: 'https://cryptopunks.app',
+    tokenImage: '🎨',
+    tokenDecimals: 18,
+    supplyInfo: {
+      totalSupply: 1_000_000_000,
+      auctionSupply: 500_000_000,
+      poolSupply: 300_000_000,
+      creatorRetained: 200_000_000,
+    },
+    status: 'active' as const,
+    startTime: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
+    endTime: new Date(Date.now() + 22 * 60 * 60 * 1000), // 22 hours from now
+    floorPrice: 0.000001,
+    currentClearingPrice: 0.0000025,
+    maxBidPrice: 0.00001,
+    raisedAmount: 3.32,
+    targetAmount: 6.64,
+    extraFundsDestination: 'pool',
+    currency: 'ETH',
+    bids: [
+      { id: '1', maxPrice: 0.00003, amount: 0.5, amountUsd: 1500, filledPercent: 100, isUserBid: true },
+      { id: '2', maxPrice: 0.000025, amount: 1.2, amountUsd: 3600, filledPercent: 85, isUserBid: false },
+      { id: '3', maxPrice: 0.000008, amount: 0.3, amountUsd: 900, filledPercent: 45, isUserBid: true },
+      { id: '4', maxPrice: 0.000005, amount: 0.8, amountUsd: 2400, filledPercent: 20, isUserBid: false },
+      { id: '5', maxPrice: 0.000002, amount: 0.52, amountUsd: 1560, filledPercent: 0, isUserBid: false },
+    ],
+  },
+  '2': {
+    id: '2',
+    tokenTicker: 'ART',
+    tokenName: 'Art Blocks Token',
+    tokenDescription: 'Art Blocks Token powers the generative art revolution. Stake for exclusive drops, vote on curated selections, and participate in artist grants.',
+    tokenWebsite: 'https://artblocks.io',
+    tokenImage: '🖼️',
+    tokenDecimals: 18,
+    supplyInfo: {
+      totalSupply: 100_000_000,
+      auctionSupply: 40_000_000,
+      poolSupply: 40_000_000,
+      creatorRetained: 20_000_000,
+    },
+    status: 'planned' as const,
+    startTime: new Date(Date.now() + 3 * 60 * 60 * 1000), // 3 hours from now
+    endTime: new Date(Date.now() + 27 * 60 * 60 * 1000), // 27 hours from now
+    floorPrice: 0.00005,
+    currentClearingPrice: 0.00005,
+    maxBidPrice: 0.0002,
+    raisedAmount: 0,
+    targetAmount: 10,
+    extraFundsDestination: 'creator',
+    currency: 'ETH',
+    bids: [],
+  },
+  '3': {
+    id: '3',
+    tokenTicker: 'APE',
+    tokenName: 'Bored Ape Token',
+    tokenDescription: 'The official Bored Ape community token. Access exclusive events, merch drops, and member-only experiences in the metaverse.',
+    tokenWebsite: 'https://boredapeyachtclub.com',
+    tokenImage: '🦍',
+    tokenDecimals: 18,
+    supplyInfo: {
+      totalSupply: 500_000_000,
+      auctionSupply: 200_000_000,
+      poolSupply: 200_000_000,
+      creatorRetained: 100_000_000,
+    },
+    status: 'ended',
+    startTime: new Date(Date.now() - 48 * 60 * 60 * 1000), // 48 hours ago
+    endTime: new Date(Date.now() - 24 * 60 * 60 * 1000), // 24 hours ago
+    floorPrice: 0.00002,
+    currentClearingPrice: 0.000065,
+    maxBidPrice: 0.0001,
+    raisedAmount: 12.8,
+    targetAmount: 10,
+    extraFundsDestination: 'pool',
+    currency: 'ETH',
+    bids: [
+      { id: '1', maxPrice: 0.0001, amount: 2.5, amountUsd: 7500, filledPercent: 100, isUserBid: false },
+      { id: '2', maxPrice: 0.00008, amount: 3.2, amountUsd: 9600, filledPercent: 100, isUserBid: true },
+      { id: '3', maxPrice: 0.00007, amount: 4.1, amountUsd: 12300, filledPercent: 100, isUserBid: false },
+      { id: '4', maxPrice: 0.00006, amount: 3.0, amountUsd: 9000, filledPercent: 60, isUserBid: false },
+    ],
+  },
+};
 
 // Utility functions
 function formatNumber(num: number, decimals: number = 2): string {
@@ -15,16 +157,43 @@ function formatNumber(num: number, decimals: number = 2): string {
   return num.toFixed(decimals);
 }
 
-function formatAmount(num: number, decimals: number = 2): string {
-  return new Intl.NumberFormat('en-US', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  }).format(num);
+// Subscript digits for crypto price formatting
+const SUBSCRIPT_DIGITS = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'];
+
+function toSubscript(num: number): string {
+  return num.toString().split('').map(d => SUBSCRIPT_DIGITS[parseInt(d)]).join('');
+}
+
+/**
+ * Format price in crypto-standard notation
+ * - Normal: 0.01303, 0.0005720
+ * - Collapsed zeros: 0.0₄7466 (means 0.00007466, subscript shows zero count)
+ */
+function formatPrice(price: number): string {
+  if (price === 0) return '0';
+  if (price >= 1) return price.toFixed(4);
+  if (price >= 0.001) return price.toFixed(6);
+
+  // For very small numbers, count leading zeros after decimal
+  const str = price.toFixed(18); // Max precision
+  const match = str.match(/^0\.(0*)([1-9]\d*)/);
+
+  if (!match) return price.toFixed(6);
+
+  const leadingZeros = match[1].length;
+  const significantDigits = match[2].slice(0, 4); // Keep 4 significant digits
+
+  // If 4 or more leading zeros, use subscript notation
+  if (leadingZeros >= 4) {
+    return `0.0${toSubscript(leadingZeros)}${significantDigits}`;
+  }
+
+  // Otherwise show normally with appropriate precision
+  return price.toFixed(leadingZeros + 4);
 }
 
 // Component version for better styling control
-function FormattedPrice({ price, className = '' }: { price: number | null; className?: string }) {
-  if (price == null) return <span className={className}>-</span>;
+function FormattedPrice({ price, className = '' }: { price: number; className?: string }) {
   if (price === 0) return <span className={className}>0</span>;
   if (price >= 0.001) {
     return <span className={className}>{price >= 1 ? price.toFixed(4) : price.toFixed(6)}</span>;
@@ -49,26 +218,9 @@ function FormattedPrice({ price, className = '' }: { price: number | null; class
   return <span className={className}>{price.toFixed(leadingZeros + 4)}</span>;
 }
 
-function formatPriceLabel(price: number | null): string {
-  if (price == null) return '-';
-  if (price === 0) return '0';
-  if (price >= 1) return price.toFixed(4);
-  if (price >= 0.001) return price.toFixed(6);
-
-  const str = price.toFixed(18);
-  const match = str.match(/^0\.(0*)([1-9]\d*)/);
-  if (!match) return price.toFixed(6);
-
-  const leadingZeros = match[1].length;
-  const significantDigits = match[2].slice(0, 4);
-  return `0.${'0'.repeat(leadingZeros)}${significantDigits}`;
-}
-
-function formatTimeRemaining(endTime: string | null): string {
-  if (!endTime) return 'TBD';
-  const end = new Date(endTime);
+function formatTimeRemaining(endTime: Date): string {
   const now = new Date();
-  const diff = end.getTime() - now.getTime();
+  const diff = endTime.getTime() - now.getTime();
 
   if (diff <= 0) return 'Ended';
 
@@ -81,9 +233,8 @@ function formatTimeRemaining(endTime: string | null): string {
   return `${minutes}m`;
 }
 
-function formatDate(date: string | null): string {
-  if (!date) return 'TBD';
-  return new Date(date).toLocaleDateString('en-US', {
+function formatDate(date: Date): string {
+  return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -91,9 +242,8 @@ function formatDate(date: string | null): string {
   });
 }
 
-function formatDuration(start: string | null, end: string | null): string {
-  if (!start || !end) return 'TBD';
-  const diff = new Date(end).getTime() - new Date(start).getTime();
+function formatDuration(start: Date, end: Date): string {
+  const diff = end.getTime() - start.getTime();
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
   const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
 
@@ -102,8 +252,8 @@ function formatDuration(start: string | null, end: string | null): string {
 }
 
 // Components
-function StatusBadge({ status }: { status: AuctionDetail['status'] }) {
-  const config: Record<AuctionDetail['status'], { bg: string; text: string; label: string }> = {
+function StatusBadge({ status }: { status: AuctionData['status'] }) {
+  const config: Record<AuctionData['status'], { bg: string; text: string; label: string }> = {
     created: { bg: 'bg-gray-500/30', text: 'text-gray-200', label: 'Created' },
     planned: { bg: 'bg-blue-500/30', text: 'text-blue-200', label: 'Planned' },
     active: { bg: 'bg-green-500/30', text: 'text-green-200', label: 'Live' },
@@ -124,10 +274,7 @@ function StatusBadge({ status }: { status: AuctionDetail['status'] }) {
   );
 }
 
-function SupplyDistributionChart({ supplyInfo }: { supplyInfo: AuctionDetail['supplyInfo'] }) {
-  if (!supplyInfo) {
-    return <div className="text-white/60 text-sm">Supply info unavailable.</div>;
-  }
+function SupplyDistributionChart({ supplyInfo }: { supplyInfo: TokenSupplyInfo }) {
   const total = supplyInfo.totalSupply;
   const auctionPercent = (supplyInfo.auctionSupply / total) * 100;
   const poolPercent = (supplyInfo.poolSupply / total) * 100;
@@ -173,23 +320,12 @@ function SupplyDistributionChart({ supplyInfo }: { supplyInfo: AuctionDetail['su
   );
 }
 
-function TimelineProgress({ startTime, endTime, status }: { startTime: string | null; endTime: string | null; status: AuctionDetail['status'] }) {
-  if (!startTime || !endTime) {
-    return <div className="text-white/60 text-sm">Timeline unavailable.</div>;
-  }
+function TimelineProgress({ startTime, endTime, status }: { startTime: Date; endTime: Date; status: AuctionData['status'] }) {
   const now = new Date();
-  const start = new Date(startTime);
-  const end = new Date(endTime);
-  const totalDuration = end.getTime() - start.getTime();
-  const elapsed = Math.max(0, now.getTime() - start.getTime());
-  const isDone = status === 'ended' || status === 'claimable' || status === 'graduated' || now >= end;
-  const progress = isDone
-    ? 100
-    : status === 'planned' || status === 'created'
-      ? 0
-      : Math.min(100, (elapsed / totalDuration) * 100);
-  const showEndedLabel = now >= end;
-  const statusLabel = showEndedLabel ? 'Ended' : status === 'planned' || status === 'created' ? 'Upcoming' : 'Live';
+  const totalDuration = endTime.getTime() - startTime.getTime();
+  const elapsed = Math.max(0, now.getTime() - startTime.getTime());
+  const isDone = status === 'ended' || status === 'claimable' || status === 'graduated';
+  const progress = status === 'planned' || status === 'created' ? 0 : isDone ? 100 : Math.min(100, (elapsed / totalDuration) * 100);
 
   return (
     <div className="space-y-3">
@@ -207,9 +343,6 @@ function TimelineProgress({ startTime, endTime, status }: { startTime: string | 
           <span className="text-white font-medium">{formatDate(endTime)}</span>
         </div>
       </div>
-      <div className={`text-center text-xs font-medium ${showEndedLabel ? 'text-gray-300' : 'text-white/70'}`}>
-        {statusLabel}
-      </div>
 
       <div className="relative">
         <div className="h-3 bg-white/10 rounded-full overflow-hidden">
@@ -221,7 +354,7 @@ function TimelineProgress({ startTime, endTime, status }: { startTime: string | 
             style={{ width: `${progress}%` }}
           />
         </div>
-        {status === 'active' && !showEndedLabel && (
+        {status === 'active' && (
           <div
             className="absolute top-1/2 -translate-y-1/2 w-5 h-5 bg-white rounded-full shadow-lg border-2 border-green-400 transition-all duration-500"
             style={{ left: `calc(${progress}% - 10px)` }}
@@ -229,31 +362,25 @@ function TimelineProgress({ startTime, endTime, status }: { startTime: string | 
         )}
       </div>
 
-      {status === 'active' && !showEndedLabel && (
+      {status === 'active' && (
         <div className="text-center">
           <span className="text-white/70 text-sm">Time Remaining: </span>
           <span className="text-white font-semibold">{formatTimeRemaining(endTime)}</span>
         </div>
-      )}
-      {showEndedLabel && (
-        <div className="text-center text-gray-300 text-sm font-semibold">Auction Ended</div>
       )}
     </div>
   );
 }
 
 function PriceSlider({ floorPrice, currentPrice, maxPrice, userBidPrice }: {
-  floorPrice: number | null;
-  currentPrice: number | null;
-  maxPrice: number | null;
+  floorPrice: number;
+  currentPrice: number;
+  maxPrice: number;
   userBidPrice?: number;
 }) {
-  const safeFloor = floorPrice ?? 0;
-  const safeCurrent = currentPrice ?? safeFloor;
-  const safeMax = maxPrice ?? safeCurrent;
-  const range = Math.max(1e-12, safeMax - safeFloor);
-  const currentPercent = ((safeCurrent - safeFloor) / range) * 100;
-  const userBidPercent = userBidPrice ? ((userBidPrice - safeFloor) / range) * 100 : null;
+  const range = maxPrice - floorPrice;
+  const currentPercent = ((currentPrice - floorPrice) / range) * 100;
+  const userBidPercent = userBidPrice ? ((userBidPrice - floorPrice) / range) * 100 : null;
 
   return (
     <div className="space-y-2">
@@ -285,32 +412,30 @@ function PriceSlider({ floorPrice, currentPrice, maxPrice, userBidPrice }: {
           <div
             className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-purple-500 rounded-full shadow-lg border-2 border-white transition-all duration-500"
             style={{ left: `calc(${userBidPercent}% - 8px)` }}
-            title={`Your bid: ${formatPriceLabel(userBidPrice ?? null)}`}
+            title={`Your bid: ${formatPrice(userBidPrice!)}`}
           />
         )}
       </div>
 
       <div className="flex justify-between text-sm">
-        <FormattedPrice price={safeFloor} className="text-white font-medium" />
+        <FormattedPrice price={floorPrice} className="text-white font-medium" />
         <div className="text-center">
-          <FormattedPrice price={safeCurrent} className="text-yellow-400 font-bold" />
+          <FormattedPrice price={currentPrice} className="text-yellow-400 font-bold" />
           <span className="text-white/70 ml-1">current</span>
         </div>
-        <FormattedPrice price={safeMax} className="text-white font-medium" />
+        <FormattedPrice price={maxPrice} className="text-white font-medium" />
       </div>
     </div>
   );
 }
 
 function RaisedProgress({ raised, target, currency }: {
-  raised: number | null;
-  target: number | null;
+  raised: number;
+  target: number;
   currency: string;
 }) {
-  const safeRaised = raised ?? 0;
-  const safeTarget = target ?? 0;
-  const percent = safeTarget > 0 ? Math.min(100, (safeRaised / safeTarget) * 100) : 0;
-  const isOverfunded = safeTarget > 0 && safeRaised > safeTarget;
+  const percent = Math.min(100, (raised / target) * 100);
+  const isOverfunded = raised > target;
 
   return (
     <div className="space-y-3">
@@ -318,14 +443,14 @@ function RaisedProgress({ raised, target, currency }: {
         <div>
           <span className="text-white/70 text-sm">Raised</span>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-white">{formatAmount(safeRaised, 2)}</span>
+            <span className="text-2xl font-bold text-white">{raised.toFixed(2)}</span>
             <span className="text-white/70">{currency}</span>
           </div>
         </div>
         <div className="text-right">
           <span className="text-white/70 text-sm">Target</span>
           <div className="flex items-baseline gap-2 justify-end">
-            <span className="text-lg font-medium text-white/70">{formatAmount(safeTarget, 2)}</span>
+            <span className="text-lg font-medium text-white/70">{target.toFixed(2)}</span>
             <span className="text-white/50">{currency}</span>
           </div>
         </div>
@@ -354,14 +479,14 @@ function RaisedProgress({ raised, target, currency }: {
           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
           </svg>
-          <span>Overfunded by {(((safeRaised - safeTarget) / safeTarget) * 100).toFixed(0)}%!</span>
+          <span>Overfunded by {((raised - target) / target * 100).toFixed(0)}%!</span>
         </div>
       )}
     </div>
   );
 }
 
-function BidRow({ bid, currency, onCancel }: { bid: AuctionBid; currency: string; onCancel: (id: string) => void }) {
+function BidRow({ bid, currency, onCancel }: { bid: Bid; currency: string; onCancel: (id: string) => void }) {
   return (
     <div className={`flex items-center gap-4 p-3 rounded-lg ${bid.isUserBid ? 'bg-purple-500/20 border border-purple-500/30' : 'bg-white/5'}`}>
       <div className="flex-1 min-w-0">
@@ -372,8 +497,7 @@ function BidRow({ bid, currency, onCancel }: { bid: AuctionBid; currency: string
           )}
         </div>
         <div className="text-white/60 text-sm">
-          {bid.amount != null ? formatAmount(bid.amount, 2) : '-'} {currency}
-          {bid.amountUsd != null && ` ($${formatNumber(bid.amountUsd, 0)})`}
+          {bid.amount} {currency} (${formatNumber(bid.amountUsd, 0)})
         </div>
       </div>
 
@@ -408,71 +532,41 @@ function BidRow({ bid, currency, onCancel }: { bid: AuctionBid; currency: string
   );
 }
 
-export default function AuctionDetailPage() {
+export default function AuctionDetailExamplePage() {
   const params = useParams();
   const router = useRouter();
   const auctionId = params.id as string;
-  const { address } = useAccount();
-  const { setShowAuthFlow } = useDynamicContext();
 
-  const [auction, setAuction] = useState<AuctionDetail | null>(null);
+  const [auction, setAuction] = useState<AuctionData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [userBids, setUserBids] = useState<AuctionBid[]>([]);
-  const [userBidsLoading, setUserBidsLoading] = useState(false);
-  const [showBidForm, setShowBidForm] = useState(false);
   const [newBidAmount, setNewBidAmount] = useState('');
   const [newBidPrice, setNewBidPrice] = useState('');
 
   // Find highest user bid price for the price slider
   const userBidPrice = useMemo(() => {
-    if (!userBids.length) return undefined;
-    return Math.max(...userBids.map(b => b.maxPrice ?? 0));
-  }, [userBids]);
+    if (!auction) return undefined;
+    const userBids = auction.bids.filter(b => b.isUserBid);
+    if (userBids.length === 0) return undefined;
+    return Math.max(...userBids.map(b => b.maxPrice));
+  }, [auction]);
 
   useEffect(() => {
+    // Simulate loading auction data
     setLoading(true);
-    fetch(`/api/auctions/${auctionId}`, { cache: 'no-store' })
-      .then(async (res) => {
-        if (res.status === 404) return { auction: null };
-        if (!res.ok) throw new Error(`Failed to load auction (${res.status})`);
-        return res.json();
-      })
-      .then((data) => {
-        setAuction(data?.auction ?? null);
-        setError(null);
-      })
-      .catch((err: Error) => {
-        setError(err.message || 'Failed to load auction');
-        setAuction(null);
-      })
-      .finally(() => setLoading(false));
+    setTimeout(() => {
+      const data = mockAuctions[auctionId];
+      setAuction(data || null);
+      setLoading(false);
+    }, 500);
   }, [auctionId]);
-
-  useEffect(() => {
-    if (!address) {
-      setUserBids([]);
-      return;
-    }
-    setUserBidsLoading(true);
-    fetch(`/api/auctions/${auctionId}/bids?wallet=${address}`, { cache: 'no-store' })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`Failed to load bids (${res.status})`);
-        return res.json();
-      })
-      .then((data) => {
-        setUserBids((data?.bids ?? []) as AuctionBid[]);
-      })
-      .catch(() => {
-        setUserBids([]);
-      })
-      .finally(() => setUserBidsLoading(false));
-  }, [auctionId, address]);
 
   const handleCancelBid = (bidId: string) => {
     if (!auction) return;
     // In real app, this would call a contract
-    setUserBids((prev) => prev.filter(b => b.id !== bidId));
+    setAuction({
+      ...auction,
+      bids: auction.bids.filter(b => b.id !== bidId),
+    });
   };
 
   const handleNewBid = () => {
@@ -487,31 +581,22 @@ export default function AuctionDetailPage() {
     }
 
     // In real app, this would call a contract
-    const newBid: AuctionBid = {
+    const newBid: Bid = {
       id: Date.now().toString(),
       maxPrice: price,
       amount: amount,
-      amountUsd: null,
+      amountUsd: amount * 3000, // Mock ETH price
       filledPercent: 0,
       isUserBid: true,
     };
 
-    setUserBids((prev) => [...prev, newBid].sort((a, b) => (b.maxPrice ?? 0) - (a.maxPrice ?? 0)));
+    setAuction({
+      ...auction,
+      bids: [...auction.bids, newBid].sort((a, b) => b.maxPrice - a.maxPrice),
+    });
 
     setNewBidAmount('');
     setNewBidPrice('');
-  };
-
-  const handleAddBidClick = () => {
-    if (!address) {
-      setShowAuthFlow?.(true);
-      return;
-    }
-    if (auction?.status !== 'active') {
-      setShowBidForm(false);
-      return;
-    }
-    setShowBidForm((prev) => !prev);
   };
 
   if (loading) {
@@ -522,29 +607,13 @@ export default function AuctionDetailPage() {
     );
   }
 
-  if (!loading && error) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-6 text-center">
-        <span className="text-6xl">⚠️</span>
-        <h1 className="text-xl font-semibold text-white">Could not load auction</h1>
-        <p className="text-white/70 text-sm">{error}</p>
-        <button
-          onClick={() => router.push('/live-auctions')}
-          className="px-6 py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors"
-        >
-          View all auctions
-        </button>
-      </div>
-    );
-  }
-
   if (!auction) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4">
         <span className="text-6xl">🔍</span>
         <h1 className="text-xl font-semibold text-white">Auction not found</h1>
         <button
-          onClick={() => router.push('/live-auctions')}
+          onClick={() => router.push('/examples/live-auctions')}
           className="px-6 py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors"
         >
           View all auctions
@@ -569,11 +638,11 @@ export default function AuctionDetailPage() {
             </button>
             <div className="flex-1 flex items-center gap-3">
               <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center text-2xl">
-                {auction.tokenImage ?? (auction.tokenTicker ? auction.tokenTicker[0] : '🪙')}
+                {auction.tokenImage}
               </div>
               <div>
-                <h1 className="text-xl font-bold text-white">{auction.tokenTicker ?? 'Unknown'}</h1>
-                <p className="text-white/60 text-sm">{auction.tokenName ?? 'Unknown token'}</p>
+                <h1 className="text-xl font-bold text-white">{auction.tokenTicker}</h1>
+                <p className="text-white/60 text-sm">{auction.tokenName}</p>
               </div>
             </div>
             <StatusBadge status={auction.status} />
@@ -593,20 +662,11 @@ export default function AuctionDetailPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-white/10 rounded-lg p-3">
                   <span className="text-white/60 text-xs block">Total Supply</span>
-                  <span className="text-white font-semibold">
-                    {auction.supplyInfo ? formatNumber(auction.supplyInfo.totalSupply) : '-'}
-                  </span>
+                  <span className="text-white font-semibold">{formatNumber(auction.supplyInfo.totalSupply)}</span>
                 </div>
-                <div className="bg-white/10 rounded-lg p-3 relative">
+                <div className="bg-white/10 rounded-lg p-3">
                   <span className="text-white/60 text-xs block">At Auction</span>
-                  <span className="text-white font-semibold">
-                    {auction.supplyInfo ? formatNumber(auction.supplyInfo.auctionSupply) : '-'}
-                  </span>
-                  <span className="absolute top-3 right-3 text-white/50 text-xs">
-                    {auction.supplyInfo && auction.supplyInfo.totalSupply > 0
-                      ? `${((auction.supplyInfo.auctionSupply / auction.supplyInfo.totalSupply) * 100).toFixed(1)}%`
-                      : '—'}
-                  </span>
+                  <span className="text-white font-semibold">{formatNumber(auction.supplyInfo.auctionSupply)}</span>
                 </div>
               </div>
 
@@ -620,16 +680,14 @@ export default function AuctionDetailPage() {
               <div className="flex justify-between items-center py-2 border-t border-white/10">
                 <span className="text-white/70">Floor Price</span>
                 <span className="text-white font-semibold">
-                  <FormattedPrice price={auction.floorPrice} /> {auction.currency ?? ''}
+                  <FormattedPrice price={auction.floorPrice} /> {auction.currency}
                 </span>
               </div>
 
               {/* Description */}
               <div className="pt-2 border-t border-white/10">
                 <span className="text-white/70 text-sm block mb-2">Description</span>
-                <p className="text-white/90 text-sm leading-relaxed">
-                  {auction.tokenDescription ?? 'No description available.'}
-                </p>
+                <p className="text-white/90 text-sm leading-relaxed">{auction.tokenDescription}</p>
               </div>
 
               {/* Website */}
@@ -680,9 +738,9 @@ export default function AuctionDetailPage() {
               <span>📈</span> Amount Raised
             </h2>
             <RaisedProgress
-              raised={auction.raised}
-              target={auction.target}
-              currency={auction.currency ?? ''}
+              raised={auction.raisedAmount}
+              target={auction.targetAmount}
+              currency={auction.currency}
             />
             <div className="mt-4 pt-3 border-t border-white/10 flex items-center gap-2">
               <span className="text-white/70 text-sm">Extra funds go to:</span>
@@ -701,15 +759,15 @@ export default function AuctionDetailPage() {
               <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                 <span>🎯</span> Bids
               </h2>
-              <span className="text-white/60 text-sm">{auction.bidders} total</span>
+              <span className="text-white/60 text-sm">{auction.bids.length} total</span>
             </div>
 
             {/* New Bid Form */}
-            {auction.status === 'active' && showBidForm && (
+            {auction.status === 'active' && (
               <div className="mb-4 p-4 bg-white/10 rounded-lg border border-white/20">
                 <div className="flex gap-3 mb-3">
                   <div className="flex-1">
-                    <label className="text-white/70 text-xs block mb-1">Amount ({auction.currency ?? '—'})</label>
+                    <label className="text-white/70 text-xs block mb-1">Amount ({auction.currency})</label>
                     <input
                       type="number"
                       step="0.01"
@@ -746,35 +804,10 @@ export default function AuctionDetailPage() {
 
             {/* Bids List */}
             <div className="space-y-2">
-              {!address ? (
+              {auction.bids.length === 0 ? (
                 <div className="text-center py-8">
-                  <button
-                    onClick={handleAddBidClick}
-                    className="w-full max-w-[220px] bg-white text-purple-900 font-semibold py-2.5 rounded-lg shadow-md hover:bg-white/90 transition-colors inline-flex items-center justify-center gap-2"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                    </svg>
-                    Add bid
-                  </button>
-                  <p className="text-white/60 text-sm mt-3">Connect wallet to add and view your bids</p>
-                </div>
-              ) : userBidsLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="animate-spin w-6 h-6 border-2 border-white/30 border-t-white rounded-full" />
-                </div>
-              ) : userBids.length === 0 ? (
-                <div className="text-center py-8">
-                  <button
-                    onClick={handleAddBidClick}
-                    className="w-full max-w-[220px] bg-white text-purple-900 font-semibold py-2.5 rounded-lg shadow-md hover:bg-white/90 transition-colors inline-flex items-center justify-center gap-2"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                    </svg>
-                    Add bid
-                  </button>
-                  <p className="text-white/60 text-sm mt-3">No bids yet</p>
+                  <span className="text-4xl block mb-2">🎯</span>
+                  <p className="text-white/60">No bids yet</p>
                   {auction.status === 'planned' && (
                     <p className="text-white/40 text-sm mt-1">Auction hasn't started</p>
                   )}
@@ -787,11 +820,11 @@ export default function AuctionDetailPage() {
                     <span className="w-16 text-center">Filled</span>
                     <span className="w-16"></span>
                   </div>
-                  {userBids.map((bid) => (
+                  {auction.bids.map((bid) => (
                     <BidRow
                       key={bid.id}
                       bid={bid}
-                      currency={auction.currency ?? ''}
+                      currency={auction.currency}
                       onCancel={handleCancelBid}
                     />
                   ))}

@@ -13,7 +13,7 @@ export interface SupportedChainConfig {
   rpcUrl: string;
   explorer: string;
   blockTimeSeconds: number;
-  /** Default start block for initial scans (reference block ≈ 01.01.2026) */
+  /** Default start block for initial scans (reference block ≈ 01.09.2025) */
   defaultStartBlock: number;
   /** Whether this is a testnet */
   isTestnet: boolean;
@@ -30,7 +30,7 @@ export const SUPPORTED_CHAINS: Record<number, SupportedChainConfig> = {
     rpcUrl: process.env.ETH_RPC_URL || 'https://eth.drpc.org',
     explorer: 'https://etherscan.io',
     blockTimeSeconds: 12,
-    defaultStartBlock: 21_525_890, // 01.01.2026
+    defaultStartBlock: 23_264_569, // 01.09.2025
     isTestnet: false,
   },
   8453: {
@@ -40,7 +40,7 @@ export const SUPPORTED_CHAINS: Record<number, SupportedChainConfig> = {
     rpcUrl: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
     explorer: 'https://basescan.org',
     blockTimeSeconds: 2,
-    defaultStartBlock: 40_218_128, // 01.01.2026
+    defaultStartBlock: 34_947_737, // 01.09.2025
     isTestnet: false,
   },
   84532: {
@@ -50,7 +50,7 @@ export const SUPPORTED_CHAINS: Record<number, SupportedChainConfig> = {
     rpcUrl: process.env.BASE_SEPOLIA_RPC_URL || 'https://sepolia.base.org',
     explorer: 'https://sepolia.basescan.org',
     blockTimeSeconds: 2,
-    defaultStartBlock: 19_960_656, // 01.01.2026
+    defaultStartBlock: 9_106_925, // 01.09.2025
     isTestnet: true,
   },
   42161: {
@@ -60,7 +60,7 @@ export const SUPPORTED_CHAINS: Record<number, SupportedChainConfig> = {
     rpcUrl: process.env.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc',
     explorer: 'https://arbiscan.io',
     blockTimeSeconds: 0.25, // ~4 blocks per second
-    defaultStartBlock: 290_687_177, // 01.01.2026
+    defaultStartBlock: 374_384_102, // 01.09.2025
     isTestnet: false,
   },
 };
@@ -101,11 +101,11 @@ export function getMainnetChainIds(): number[] {
     .map(c => c.chainId);
 }
 
-/** Reference timestamp for block-time estimation: 01.01.2026 00:00:00 UTC. Each chain uses its defaultStartBlock as the reference block. */
-const REFERENCE_TIMESTAMP = 1767225600; // 2026-01-01T00:00:00Z
+/** Reference timestamp for block-time estimation: 01.09.2025 00:00:00 UTC. Each chain uses its defaultStartBlock as the reference block. */
+const REFERENCE_TIMESTAMP = 1756684800; // 2025-09-01T00:00:00Z
 
 /**
- * Estimate block timestamp without RPC. Uses chain block time and reference (defaultStartBlock ≈ 01.01.2026).
+ * Estimate block timestamp without RPC. Uses chain block time and reference (defaultStartBlock ≈ 01.09.2025).
  * Suitable for ordering and display; not exact on-chain time.
  */
 export function getEstimatedBlockTimestamp(chainId: number, blockNumber: number): Date {

@@ -11,7 +11,7 @@ import type { AuctionInfo } from '@/lib/auction/fetcher';
 import { getEstimatedBlockTimestamp } from '@/lib/chains';
 import { getCurrencyName, getCurrencyDecimals, currencyAmountToHuman } from '@/lib/currencies';
 import { q96ToHuman } from '@/utils/format';
-import { createAlchemyClient, rawLogToViemLog } from '@/lib/providers';
+import { createAlchemyClient, rawLogToViemLog, getTokenInfo, type CoinGeckoTokenInfo } from '@/lib/providers';
 import { processLogEntry, getCachedEventTopics } from './process-log-entry';
 import type { RawLog, ScanResult } from './types';
 
@@ -21,18 +21,23 @@ import type { RawLog, ScanResult } from './types';
 
 /** Batch size for scanning a single contract (can be larger since we filter by address) */
 const SCAN_BATCH_SIZE = 50_000;
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 // =============================================================================
 // SAVE AUCTION INFO
 // =============================================================================
 
-function buildTokenJson(info: AuctionInfo) {
+function buildTokenInfoJson(info: AuctionInfo, meta: CoinGeckoTokenInfo | null) {
   return {
     address: info.tokenAddress,
     name: info.tokenName,
     symbol: info.tokenSymbol,
     decimals: info.tokenDecimals,
     totalSupply: info.tokenTotalSupply.toString(),
+    icon: meta?.icon ?? null,
+    logo: meta?.logo ?? null,
+    description: meta?.description ?? null,
+    categories: meta?.categories && meta.categories.length > 0 ? meta.categories : null,
   };
 }
 
@@ -50,10 +55,56 @@ function buildSupplyInfoJson(info: AuctionInfo) {
   };
 }
 
+function buildLinksJson(meta: CoinGeckoTokenInfo | null): Record<string, string> | null {
+  if (!meta) return null;
+  const mapping: Record<string, keyof CoinGeckoTokenInfo> = {
+    Website: 'website',
+    Twitter: 'twitter',
+    Discord: 'discord',
+    Telegram: 'telegram',
+    GitHub: 'github',
+    Reddit: 'reddit',
+    Facebook: 'facebook',
+    Blog: 'blog',
+    LinkedIn: 'linkedin',
+    Whitepaper: 'whitepaper',
+  };
+  const links: Record<string, string> = {};
+  for (const [label, key] of Object.entries(mapping)) {
+    const value = meta[key];
+    if (typeof value === 'string' && value.trim() !== '') {
+      links[label] = value.trim();
+    }
+  }
+  return Object.keys(links).length > 0 ? links : null;
+}
+
+function isStablecoin(categories: string[] | null | undefined): boolean {
+  if (!categories || categories.length === 0) return false;
+  return categories.some((c) => c.toLowerCase().includes('stablecoin'));
+}
+
 async function upsertAuctionFromInfo(info: AuctionInfo, sourceCodeHash: string | null = null): Promise<void> {
   const auctionAddress = info.auctionAddress.toLowerCase();
-  const tokenJson = buildTokenJson(info);
+  const tokenMeta =
+    (await getTokenInfo(info.tokenAddress, info.chainId)) ??
+    (await getTokenInfo(info.auctionAddress, info.chainId));
+  const tokenInfoJson = buildTokenInfoJson(info, tokenMeta);
+  const linksJson = buildLinksJson(tokenMeta);
   const supplyInfoJson = buildSupplyInfoJson(info);
+
+  const currencyAddress = (info.parameters.currency ?? ZERO_ADDRESS).toLowerCase();
+  let currencyName = getCurrencyName(info.parameters.currency);
+  let isCurrencyStablecoin = false;
+  if (currencyName === 'Unknown' && currencyAddress !== ZERO_ADDRESS) {
+    const currencyMeta = await getTokenInfo(currencyAddress as `0x${string}`, info.chainId);
+
+    currencyName =
+      currencyMeta?.tokenSymbol ??
+      currencyMeta?.tokenName ??
+      currencyName;
+    isCurrencyStablecoin = isStablecoin(currencyMeta?.categories);
+  }
 
   // Convert targetAmount from raw currency units to human-readable decimal
   // Use requiredCurrencyRaised which is the currency target, not auctionAmount (which is token quantity)
@@ -70,15 +121,20 @@ async function upsertAuctionFromInfo(info: AuctionInfo, sourceCodeHash: string |
       address: auctionAddress,
       status: info.auctionStatus,
       creatorAddress: info.from,
+      factoryAddress: info.factoryAddress,
+      validationHookAddress: info.parameters.validationHook,
       startTime: info.timeInfo.startTime,
       endTime: info.timeInfo.endTime,
       floorPrice: q96ToHuman(info.parameters.floorPrice),
       targetAmount,
       auctionTokenSupply,
       currency: info.parameters.currency,
-      currencyName: getCurrencyName(info.parameters.currency),
-      token: tokenJson,
+      currencyName,
+      isCurrencyStablecoin,
+      tokenInfo: tokenInfoJson,
+      links: linksJson,
       supplyInfo: supplyInfoJson,
+      auctionStepsRaw: info.auctionSteps,
       extraFundsDestination: info.extraFundsDestination,
       sourceCodeHash,
       createdAt: info.timestamp,
@@ -89,15 +145,20 @@ async function upsertAuctionFromInfo(info: AuctionInfo, sourceCodeHash: string |
       set: {
         status: info.auctionStatus,
         creatorAddress: info.from,
+        factoryAddress: info.factoryAddress,
+        validationHookAddress: info.parameters.validationHook,
         startTime: info.timeInfo.startTime,
         endTime: info.timeInfo.endTime,
         floorPrice: q96ToHuman(info.parameters.floorPrice),
         targetAmount,
         auctionTokenSupply,
         currency: info.parameters.currency,
-        currencyName: getCurrencyName(info.parameters.currency),
-        token: tokenJson,
+        currencyName,
+        isCurrencyStablecoin,
+        tokenInfo: tokenInfoJson,
+        links: linksJson,
         supplyInfo: supplyInfoJson,
+        auctionStepsRaw: info.auctionSteps,
         extraFundsDestination: info.extraFundsDestination,
         sourceCodeHash,
         updatedAt: new Date(),

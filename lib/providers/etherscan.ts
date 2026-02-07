@@ -53,6 +53,40 @@ interface EtherscanSourceCodeResponse {
   result: EtherscanSourceCodeResult[] | string;
 }
 
+/** Token info from Etherscan (website + socials). All fields may be empty string in API. */
+export interface EtherscanTokenInfo {
+  website: string | null;
+  twitter: string | null;
+  discord: string | null;
+  telegram: string | null;
+  github: string | null;
+  reddit: string | null;
+  facebook: string | null;
+  blog: string | null;
+  linkedin: string | null;
+  whitepaper: string | null;
+}
+
+interface EtherscanTokenInfoResult {
+  website?: string;
+  twitter?: string;
+  discord?: string;
+  telegram?: string;
+  github?: string;
+  reddit?: string;
+  facebook?: string;
+  blog?: string;
+  linkedin?: string;
+  whitepaper?: string;
+  [key: string]: string | undefined;
+}
+
+interface EtherscanTokenInfoResponse {
+  status: string;
+  message: string;
+  result: EtherscanTokenInfoResult[] | string;
+}
+
 // =============================================================================
 // Request counting (for scan-blocks script)
 // =============================================================================
@@ -201,4 +235,73 @@ export function hashSourceCode(source: string): string {
 export async function getContractSourceCodeHash(contractAddress: Address, chainId: number): Promise<string | null> {
   const source = await getContractSourceCode(contractAddress, chainId);
   return source ? hashSourceCode(source) : null;
+}
+
+// =============================================================================
+// Token info (website & socials)
+// =============================================================================
+
+function toNull(s: string | undefined): string | null {
+  const t = typeof s === 'string' ? s.trim() : '';
+  return t === '' ? null : t;
+}
+
+/**
+ * Fetch token metadata (website, social links) from Etherscan by contract address.
+ * Returns null if the API fails or token info is not available.
+ * Requires ETHERSCAN_API_KEY. Uses tokeninfo endpoint (Standard plan+, 2 calls/sec).
+ * Handles both array and single-object result from API.
+ */
+export async function getTokenInfo(contractAddress: Address, chainId: number): Promise<EtherscanTokenInfo | null> {
+  if (!SUPPORTED_CHAINS[chainId]) return null;
+
+  const apiKey = process.env.ETHERSCAN_API_KEY;
+  if (!apiKey) return null;
+
+  const url = new URL(ETHERSCAN_API_URL);
+  url.searchParams.set('module', 'token');
+  url.searchParams.set('action', 'tokeninfo');
+  url.searchParams.set('contractaddress', contractAddress);
+  url.searchParams.set('chainid', chainId.toString());
+  url.searchParams.set('apikey', apiKey);
+
+  try {
+    const data = await pRetry(
+      async () => {
+        etherscanRequestCount++;
+        const response = await fetch(url.toString(), {
+          signal: AbortSignal.timeout(ETHERSCAN_TIMEOUT_MS),
+        });
+        if (!response.ok) {
+          throw new Error(`Etherscan API request failed: ${response.status}`);
+        }
+        return response.json() as Promise<EtherscanTokenInfoResponse>;
+      },
+      ETHERSCAN_RETRY_OPTIONS,
+    );
+
+    if (data.status !== '1') return null;
+
+    const raw = data.result;
+    const first = Array.isArray(raw) ? raw[0] : typeof raw === 'object' && raw !== null ? raw : null;
+    if (!first || typeof first !== 'object') return null;
+
+    const r = first as EtherscanTokenInfoResult;
+    const info: EtherscanTokenInfo = {
+      website: toNull(r.website),
+      twitter: toNull(r.twitter),
+      discord: toNull(r.discord),
+      telegram: toNull(r.telegram),
+      github: toNull(r.github),
+      reddit: toNull(r.reddit),
+      facebook: toNull(r.facebook),
+      blog: toNull(r.blog),
+      linkedin: toNull(r.linkedin),
+      whitepaper: toNull(r.whitepaper),
+    };
+    const hasAny = Object.values(info).some((v) => v != null && v !== '');
+    return hasAny ? info : null;
+  } catch {
+    return null;
+  }
 }

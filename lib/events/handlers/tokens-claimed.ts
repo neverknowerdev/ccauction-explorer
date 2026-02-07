@@ -29,7 +29,7 @@ export async function handleTokensClaimed(ctx: EventContext): Promise<void> {
   }
 
   // Convert filledTokens from raw token units to human-readable decimal (tokens received)
-  const tokenDecimals = auction.token?.decimals ?? 18;
+  const tokenDecimals = auction.tokenInfo?.decimals ?? 18;
   let filledTokens: string | null = null;
   if (rawFilledTokens) {
     filledTokens = tokenAmountToHuman(rawFilledTokens, tokenDecimals);
