@@ -17,6 +17,8 @@ export const maxDuration = 60;
 export async function GET(request: NextRequest) {
   const startTime = Date.now();
 
+  console.log('Cron: Fetching ETH prices');
+
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret) {
     const authHeader = request.headers.get('authorization');
@@ -35,6 +37,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    console.log('Cron: Inserting ETH price', priceUsd);
     await db.insert(ethPrices).values({
       timestamp: new Date(),
       price: priceUsd.toString(),

@@ -46,6 +46,8 @@ export const maxDuration = 60; // Vercel Pro allows up to 60s
 export async function GET(request: NextRequest) {
   const startTime = Date.now();
 
+  console.log('Cron: Scanning events');
+
   // Optional: Verify cron secret
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret) {
@@ -71,6 +73,7 @@ export async function GET(request: NextRequest) {
     try {
       const priceUsd = await getEthUsdPrice();
       if (priceUsd != null && Number.isFinite(priceUsd)) {
+        console.log('Cron: Inserting ETH price', priceUsd);
         await db.insert(ethPrices).values({
           timestamp: new Date(),
           price: priceUsd.toString(),
