@@ -116,6 +116,7 @@ export async function GET(request: NextRequest) {
         try {
           // Get start block: from DB or use default
           const lastScannedBlock = await getLatestScannedBlock(chainId);
+          console.log('Cron: Last scanned block', lastScannedBlock);
           let startBlock: number;
 
           if (lastScannedBlock != null) {
@@ -176,6 +177,7 @@ export async function GET(request: NextRequest) {
           results.totalEventsProcessed += result.processed;
           results.totalErrors += result.errors;
 
+          console.log('Cron: Updating last scanned block', endBlock);
           // Update last scanned block
           await updateLatestScannedBlock(chainId, endBlock);
 
