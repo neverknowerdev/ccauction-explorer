@@ -21,7 +21,8 @@
     "alchemy-delete-old-webhooks": "tsx scripts/alchemy/delete-old-webhooks.ts",
     "alchemy-list-signing-keys": "tsx scripts/alchemy/list-signing-keys.ts",
     "scan-blocks": "tsx scripts/scan-blocks.ts",
-    "scan-auction": "tsx scripts/scan-auction.ts"
+    "scan-auction": "tsx scripts/scan-auction.ts",
+    "refill-auction-info": "tsx scripts/refill-auction-info.ts"
   },
   "dependencies": {
     "@dynamic-labs/ethereum": "^4.57.2",

@@ -4,7 +4,7 @@
  */
 
 import type { Chain } from 'viem';
-import { mainnet, base, baseSepolia, arbitrum } from 'viem/chains';
+import { mainnet, sepolia, base, baseSepolia, arbitrum } from 'viem/chains';
 
 export interface SupportedChainConfig {
   chainId: number;
@@ -51,6 +51,16 @@ export const SUPPORTED_CHAINS: Record<number, SupportedChainConfig> = {
     explorer: 'https://sepolia.basescan.org',
     blockTimeSeconds: 2,
     defaultStartBlock: 9_106_925, // 01.09.2025
+    isTestnet: true,
+  },
+  11155111: {
+    chainId: 11155111,
+    chain: sepolia,
+    name: 'Ethereum Sepolia',
+    rpcUrl: process.env.ETH_SEPOLIA_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com',
+    explorer: 'https://sepolia.etherscan.io',
+    blockTimeSeconds: 12,
+    defaultStartBlock: 8_441_307, // 01.09.2025
     isTestnet: true,
   },
   42161: {

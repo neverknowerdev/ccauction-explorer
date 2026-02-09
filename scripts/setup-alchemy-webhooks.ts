@@ -2,7 +2,7 @@
  * Create and re-create Alchemy Custom Webhooks for CCA factory + auction events.
  *
  * Uses Alchemy Notify API: list webhooks, delete all with CCA-prefix names, create new generation.
- * Auth: ALCHEMY_AUTH_TOKEN, optional ALCHEMY_APP_ID. Webhook URL: first CLI arg or --webhook-url.
+ * Auth: ALCHEMY_AUTH_TOKEN, optional ALCHEMY_APP_ID. Webhook base URL: first CLI arg or --webhook-url.
  *
  * Run: ALCHEMY_AUTH_TOKEN=xxx yarn setup-alchemy-webhooks https://your-app.com/api/handle-event/alchemy
  *   or: yarn setup-alchemy-webhooks --webhook-url https://...
@@ -29,12 +29,12 @@ const AUCTION_EVENTS_TOPICS = [
   '0x30adbe996d7a69a21fdebcc1f8a46270bf6c22d505a7d872c1ab4767aa707609', // ClearingPriceUpdated(...)
 ];
 
-const CHAINS: { network: string; label: string }[] = [
-  { network: 'BASE_MAINNET', label: 'BaseMainnet' },
-  { network: 'BASE_SEPOLIA', label: 'BaseSepolia' },
-  { network: 'ETH_MAINNET', label: 'EthereumMainnet' },
-  { network: 'ETH_SEPOLIA', label: 'EthereumSepolia' },
-  { network: 'ARB_MAINNET', label: 'ArbitrumMainnet' },
+const CHAINS: { network: string; label: string; chainId: number }[] = [
+  { network: 'BASE_MAINNET', label: 'BaseMainnet', chainId: 8453 },
+  { network: 'BASE_SEPOLIA', label: 'BaseSepolia', chainId: 84532 },
+  { network: 'ETH_MAINNET', label: 'EthereumMainnet', chainId: 1 },
+  { network: 'ETH_SEPOLIA', label: 'EthereumSepolia', chainId: 11155111 },
+  { network: 'ARB_MAINNET', label: 'ArbitrumMainnet', chainId: 42161 },
 ];
 
 /** Name must match "CCA" + digits + space (e.g. "CCA1 AuctionCreated [BaseMainnet]") */
@@ -72,6 +72,10 @@ function getWebhookUrl(): string {
     process.exit(1);
   }
   return url;
+}
+
+function buildChainWebhookUrl(baseWebhookUrl: string, chainId: number): string {
+  return `${baseWebhookUrl.replace(/\/+$/, '')}/${chainId}`;
 }
 
 function buildGraphQLQuery(topic0List: string[]): string {
@@ -262,14 +266,14 @@ function nextPrefix(maxNum: number): string {
 
 async function main() {
   const authToken = getAuthToken();
-  const webhookUrl = getWebhookUrl();
+  const webhookUrlBase = getWebhookUrl();
   const appId = getAppId();
 
   const all = await listWebhooks(authToken);
   const { webhooks: toDelete, maxNum } = webhooksWithCCAPrefix(all);
   const newPrefix = nextPrefix(maxNum);
 
-  console.log('Webhook URL:', webhookUrl);
+  console.log('Webhook URL Base:', webhookUrlBase);
   console.log('New prefix:', newPrefix);
   if (appId) console.log('App ID:', appId);
 
@@ -277,7 +281,8 @@ async function main() {
   const queryAllEvents = buildGraphQLQuery(AUCTION_EVENTS_TOPICS);
 
   // Create new webhooks first, then remove old ones
-  for (const { network, label } of CHAINS) {
+  for (const { network, label, chainId } of CHAINS) {
+    const webhookUrl = buildChainWebhookUrl(webhookUrlBase, chainId);
     const nameAuctionCreated = `${newPrefix} AuctionCreated [${label}]`;
     const nameAllEvents = `${newPrefix} AllEvents [${label}]`;
     const id1 = await createWebhook(
