@@ -146,7 +146,9 @@ async function main() {
     throw new Error('DB_CONNECTION_STRING is not set');
   }
 
-  const sql = postgres(connectionString);
+  // Disable prepared statements to avoid stale cached-plan errors after schema changes
+  // on pooled connections (e.g. Neon pooler / PgBouncer).
+  const sql = postgres(connectionString, { prepare: false });
 
   console.log('='.repeat(60));
   console.log('Backfill Prices');

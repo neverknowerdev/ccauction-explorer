@@ -6,7 +6,7 @@ import BottomNav from '@/components/BottomNav';
 import { FormattedPrice } from '@/components/auction/FormattedPrice';
 import { TokenAvatar } from '@/components/auction/TokenAvatar';
 import type { AuctionListItem, AuctionStats, AuctionStatus } from '@/lib/auctions/types';
-import { formatFdv } from '@/app/helpers/auction-view-helpers';
+import { convertFdvToUsd, formatFdv, getLatestEthPriceUsdCached } from '@/app/helpers/auction-view-helpers';
 
 function StatusBadge({ status }: { status: AuctionStatus }) {
   const config: Record<AuctionStatus, { bg: string; text: string; label: string; pulse?: boolean }> = {
@@ -108,11 +108,22 @@ function getTimeLabel(auction: AuctionListItem): string {
   return 'TBD';
 }
 
-function AuctionCard({ auction }: { auction: AuctionListItem }) {
+function AuctionCard({
+  auction,
+  ethPriceUsd,
+}: {
+  auction: AuctionListItem;
+  ethPriceUsd: number | null;
+}) {
   const raised = auction.raised ?? 0;
   const target = auction.target ?? 0;
   const raisedPercent = target > 0 ? (raised / target) * 100 : 0;
   const timeLeft = getTimeLabel(auction);
+
+  const minimumFdvUsd = useMemo(
+    () => convertFdvToUsd(auction.minimumFdv, auction.currency, ethPriceUsd),
+    [auction.minimumFdv, auction.currency, ethPriceUsd]
+  );
 
   return (
     <Link
@@ -170,8 +181,7 @@ function AuctionCard({ auction }: { auction: AuctionListItem }) {
           </div>
           <div className="mt-2 text-right">
             <p className="text-white/45 text-xs">
-              Min FDV: <span className="text-white/80">{formatFdv(auction.minimumFdv)}</span>
-              {auction.currency ? ` ${auction.currency}` : ''}
+              Min FDV: <span className="text-white/80">${formatFdv(minimumFdvUsd)}</span>
             </p>
           </div>
         </div>
@@ -196,6 +206,7 @@ export default function LiveAuctionsPage() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'live' | 'planned' | 'ended'>('all');
   const [chainFilter, setChainFilter] = useState<'all' | number>('all');
   const [includeBelowThreshold, setIncludeBelowThreshold] = useState(false);
+  const [ethPriceUsd, setEthPriceUsd] = useState<number | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -246,6 +257,20 @@ export default function LiveAuctionsPage() {
       isMounted = false;
     };
   }, [includeBelowThreshold]);
+
+  useEffect(() => {
+    let isMounted = true;
+    getLatestEthPriceUsdCached()
+      .then((value) => {
+        if (isMounted) setEthPriceUsd(value);
+      })
+      .catch(() => {
+        if (isMounted) setEthPriceUsd(null);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const filteredSections = useMemo(() => {
     const applyChainFilter = (items: AuctionListItem[]) =>
@@ -349,7 +374,7 @@ export default function LiveAuctionsPage() {
             <section className="space-y-3">
               <h2 className="text-white/80 text-xs uppercase tracking-wide">Live</h2>
               {filteredSections.live.map((auction) => (
-                <AuctionCard key={auction.id} auction={auction} />
+                <AuctionCard key={auction.id} auction={auction} ethPriceUsd={ethPriceUsd} />
               ))}
             </section>
           )}
@@ -359,7 +384,7 @@ export default function LiveAuctionsPage() {
               <h2 className="text-white/80 text-xs uppercase tracking-wide">Planned</h2>
               {filteredSections.planned.length > 0 ? (
                 filteredSections.planned.map((auction) => (
-                  <AuctionCard key={auction.id} auction={auction} />
+                  <AuctionCard key={auction.id} auction={auction} ethPriceUsd={ethPriceUsd} />
                 ))
               ) : (
                 <p className="text-white/45 text-xs leading-relaxed normal-case tracking-normal">
@@ -373,7 +398,7 @@ export default function LiveAuctionsPage() {
             <section className="space-y-3 pt-2">
               <h2 className="text-white/80 text-xs uppercase tracking-wide">Ended</h2>
               {filteredSections.ended.map((auction) => (
-                <AuctionCard key={auction.id} auction={auction} />
+                <AuctionCard key={auction.id} auction={auction} ethPriceUsd={ethPriceUsd} />
               ))}
             </section>
           )}

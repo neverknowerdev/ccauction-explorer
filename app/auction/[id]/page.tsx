@@ -11,7 +11,7 @@ import { TokenAvatar } from '@/components/auction/TokenAvatar';
 import type { AuctionBid, AuctionDetail } from '@/lib/auctions/types';
 import { ccaAuctionAbi } from '@/lib/contracts/abis';
 import { priceToQ96 } from '@/lib/contracts/encoder';
-import { formatFdv } from '@/app/helpers/auction-view-helpers';
+import { convertFdvToUsd, formatFdv, getLatestEthPriceUsdCached } from '@/app/helpers/auction-view-helpers';
 
 // Utility functions
 function formatNumber(num: number, decimals: number = 2): string {
@@ -411,6 +411,7 @@ export default function AuctionDetailPage() {
   const [newBidPrice, setNewBidPrice] = useState('');
   const [bidError, setBidError] = useState<string | null>(null);
   const [isSubmittingBid, setIsSubmittingBid] = useState(false);
+  const [ethPriceUsd, setEthPriceUsd] = useState<number | null>(null);
 
   // Find highest user bid price for the price slider
   const userBidPrice = useMemo(() => {
@@ -458,6 +459,29 @@ export default function AuctionDetailPage() {
   useEffect(() => {
     fetchUserBids(address);
   }, [address, fetchUserBids]);
+
+  useEffect(() => {
+    let isMounted = true;
+    getLatestEthPriceUsdCached()
+      .then((value) => {
+        if (isMounted) setEthPriceUsd(value);
+      })
+      .catch(() => {
+        if (isMounted) setEthPriceUsd(null);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const minimumFdvUsd = useMemo(
+    () => convertFdvToUsd(auction?.minimumFdv ?? null, auction?.currency ?? null, ethPriceUsd),
+    [auction?.minimumFdv, auction?.currency, ethPriceUsd]
+  );
+  const currentFdvUsd = useMemo(
+    () => convertFdvToUsd(auction?.currentFdv ?? null, auction?.currency ?? null, ethPriceUsd),
+    [auction?.currentFdv, auction?.currency, ethPriceUsd]
+  );
 
   const handleCancelBid = (bidId: string) => {
     if (!auction) return;
@@ -696,14 +720,14 @@ export default function AuctionDetailPage() {
               <div className="bg-white/10 rounded-lg p-3">
                 <span className="text-white/60 text-xs block">Minimum FDV</span>
                 <span className="text-white font-semibold">
-                  {formatFdv(auction.minimumFdv)}{auction.currency ? ` ${auction.currency}` : ''}
+                  ${formatFdv(minimumFdvUsd)}
                 </span>
                 <p className="text-white/50 text-xs mt-1">Based on floor price</p>
               </div>
               <div className="bg-white/10 rounded-lg p-3">
                 <span className="text-white/60 text-xs block">Current FDV</span>
                 <span className="text-white font-semibold">
-                  {formatFdv(auction.currentFdv)}{auction.currency ? ` ${auction.currency}` : ''}
+                  ${formatFdv(currentFdvUsd)}
                 </span>
                 <p className="text-white/50 text-xs mt-1">Based on clearing price</p>
               </div>
