@@ -10,7 +10,7 @@ import { db, auctions } from '@/lib/db';
 import type { AuctionInfo } from '@/lib/auction/fetcher';
 import { getEstimatedBlockTimestamp } from '@/lib/chains';
 import { getCurrencyName, getCurrencyDecimals, currencyAmountToHuman } from '@/lib/currencies';
-import { q96ToHuman } from '@/utils/format';
+import { q96ToPrice } from '@/utils/format';
 import { createAlchemyClient, rawLogToViemLog, getTokenInfo, type CoinGeckoTokenInfo } from '@/lib/providers';
 import { processLogEntry, getCachedEventTopics } from './process-log-entry';
 import type { RawLog, ScanResult } from './types';
@@ -113,6 +113,7 @@ export async function upsertAuctionFromInfo(
   // Use requiredCurrencyRaised which is the currency target, not auctionAmount (which is token quantity)
   const currencyDecimals = getCurrencyDecimals(info.parameters.currency);
   const targetAmount = currencyAmountToHuman(info.parameters.requiredCurrencyRaised, currencyDecimals);
+  const floorPrice = q96ToPrice(info.parameters.floorPrice, info.tokenDecimals, currencyDecimals);
 
   // Convert auctionAmount (token quantity) using token decimals
   const auctionTokenSupply = currencyAmountToHuman(info.auctionAmount, info.tokenDecimals);
@@ -128,7 +129,7 @@ export async function upsertAuctionFromInfo(
       validationHookAddress: info.parameters.validationHook,
       startTime: info.timeInfo.startTime,
       endTime: info.timeInfo.endTime,
-      floorPrice: q96ToHuman(info.parameters.floorPrice),
+      floorPrice,
       targetAmount,
       auctionTokenSupply,
       currency: info.parameters.currency,
@@ -152,7 +153,7 @@ export async function upsertAuctionFromInfo(
         validationHookAddress: info.parameters.validationHook,
         startTime: info.timeInfo.startTime,
         endTime: info.timeInfo.endTime,
-        floorPrice: q96ToHuman(info.parameters.floorPrice),
+        floorPrice,
         targetAmount,
         auctionTokenSupply,
         currency: info.parameters.currency,

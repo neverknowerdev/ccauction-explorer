@@ -7,7 +7,7 @@
 
 import { db, bids } from '@/lib/db';
 import { getAuctionWithCurrency, getLatestEthPrice } from '@/lib/db';
-import { q96ToHuman } from '@/utils/format';
+import { q96ToPrice } from '@/utils/format';
 import { getCurrencyDecimals, currencyAmountToHuman } from '@/lib/currencies';
 import Decimal from 'decimal.js';
 import type { EventContext } from '../types';
@@ -40,11 +40,12 @@ export async function handleBidSubmitted(ctx: EventContext): Promise<void> {
   }
 
   // Convert price from Q96 to human-readable decimal
-  const maxPrice = q96ToHuman(priceQ96);
+  const tokenDecimals = auction.tokenInfo?.decimals ?? 18;
+  const currencyDecimals = getCurrencyDecimals(auction.currency);
+  const maxPrice = q96ToPrice(priceQ96, tokenDecimals, currencyDecimals);
   console.log('[BidSubmitted] priceQ96', priceQ96, 'maxPrice', maxPrice);
 
   // Convert amount from raw currency units to human-readable decimal
-  const currencyDecimals = getCurrencyDecimals(auction.currency);
   const amount = currencyAmountToHuman(rawAmount, currencyDecimals);
   let amountUsd: string | null = null;
 

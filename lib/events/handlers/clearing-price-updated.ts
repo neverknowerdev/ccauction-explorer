@@ -6,8 +6,9 @@
 
 import { eq } from 'drizzle-orm';
 import { db, auctions, clearingPriceHistory } from '@/lib/db';
-import { getAuctionId } from '@/lib/db';
-import { q96ToHuman } from '@/utils/format';
+import { getAuctionWithCurrency } from '@/lib/db';
+import { getCurrencyDecimals } from '@/lib/currencies';
+import { q96ToPrice } from '@/utils/format';
 import type { EventContext } from '../types';
 import { auctionNotFoundError, missingParamsError } from '../errors';
 
@@ -24,18 +25,18 @@ export async function handleClearingPriceUpdated(ctx: EventContext): Promise<voi
     throw missingParamsError('ClearingPriceUpdated', ctx.params);
   }
 
-
-  const clearingPrice = q96ToHuman(clearingPriceRaw);
-  console.log('[ClearingPriceUpdated] clearingPriceRaw', clearingPriceRaw, 'clearingPrice', clearingPrice);
-
-  const auctionId = await getAuctionId(ctx.chainId, auctionAddress);
-  if (!auctionId) {
+  const auction = await getAuctionWithCurrency(ctx.chainId, auctionAddress);
+  if (!auction) {
     throw auctionNotFoundError('ClearingPriceUpdated', ctx.chainId, auctionAddress);
   }
+  const tokenDecimals = auction.tokenInfo?.decimals ?? 18;
+  const currencyDecimals = getCurrencyDecimals(auction.currency);
+  const clearingPrice = q96ToPrice(clearingPriceRaw, tokenDecimals, currencyDecimals);
+  console.log('[ClearingPriceUpdated] clearingPriceRaw', clearingPriceRaw, 'clearingPrice', clearingPrice);
 
   // Insert clearing price history (always insert, no conflict handling needed since id is autoincrement)
   await db.insert(clearingPriceHistory).values({
-    auctionId,
+    auctionId: auction.id,
     time: ctx.timestamp,
     clearingPrice,
     processedLogId: ctx.processedLogId,
@@ -48,7 +49,7 @@ export async function handleClearingPriceUpdated(ctx: EventContext): Promise<voi
       currentClearingPrice: clearingPrice,
       updatedAt: new Date(),
     })
-    .where(eq(auctions.id, auctionId));
+    .where(eq(auctions.id, auction.id));
 
-  console.log(`ClearingPriceUpdated: recorded for auctionId=${auctionId} price=${clearingPrice}`);
+  console.log(`ClearingPriceUpdated: recorded for auctionId=${auction.id} price=${clearingPrice}`);
 }

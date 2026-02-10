@@ -17,6 +17,7 @@
     "create-lbp-auction": "tsx scripts/create-lbp-auction.ts",
     "fetch-auction-info": "tsx scripts/fetch-auction-info.ts",
     "simulate-auction": "tsx scripts/simulate-auction.ts",
+    "backfill-prices": "tsx scripts/backfill-prices.ts",
     "alchemy-setup-webhooks": "tsx scripts/alchemy/setup-webhooks.ts",
     "alchemy-delete-old-webhooks": "tsx scripts/alchemy/delete-old-webhooks.ts",
     "alchemy-list-signing-keys": "tsx scripts/alchemy/list-signing-keys.ts",

@@ -42,6 +42,7 @@ import {
   NATIVE_ETH,
 } from '../lib/contracts/addresses';
 import { encodeTokenMetadata, priceToQ96 } from '../lib/contracts/encoder';
+import { q96ToPrice } from '../utils/format';
 
 // Load environment variables from .env.local
 config({ path: resolve(process.cwd(), '.env.local') });
@@ -257,11 +258,8 @@ function encodeAuctionConfig(params: {
 // Utility Functions
 // ============================================================================
 
-const Q96 = BigInt(2) ** BigInt(96);
-
 function formatQ96Price(price: bigint): string {
-  const priceNum = Number(price) / Number(Q96);
-  return priceNum.toFixed(12);
+  return Number(q96ToPrice(price, 18, 18)).toFixed(12);
 }
 
 function sleep(ms: number): Promise<void> {

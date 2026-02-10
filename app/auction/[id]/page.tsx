@@ -6,9 +6,12 @@ import { useAccount, useChainId, usePublicClient, useSwitchChain, useWriteContra
 import { parseUnits } from 'viem';
 import { useDynamicContext } from '@dynamic-labs/sdk-react-core';
 import BottomNav from '@/components/BottomNav';
+import { FormattedPrice } from '@/components/auction/FormattedPrice';
+import { TokenAvatar } from '@/components/auction/TokenAvatar';
 import type { AuctionBid, AuctionDetail } from '@/lib/auctions/types';
 import { ccaAuctionAbi } from '@/lib/contracts/abis';
 import { priceToQ96 } from '@/lib/contracts/encoder';
+import { formatFdv } from '@/app/helpers/auction-view-helpers';
 
 // Utility functions
 function formatNumber(num: number, decimals: number = 2): string {
@@ -25,32 +28,6 @@ function formatAmount(num: number, decimals: number = 2): string {
   }).format(num);
 }
 
-// Component version for better styling control
-function FormattedPrice({ price, className = '' }: { price: number | null; className?: string }) {
-  if (price == null) return <span className={className}>-</span>;
-  if (price === 0) return <span className={className}>0</span>;
-  if (price >= 0.001) {
-    return <span className={className}>{price >= 1 ? price.toFixed(4) : price.toFixed(6)}</span>;
-  }
-
-  const str = price.toFixed(18);
-  const match = str.match(/^0\.(0*)([1-9]\d*)/);
-
-  if (!match) return <span className={className}>{price.toFixed(6)}</span>;
-
-  const leadingZeros = match[1].length;
-  const significantDigits = match[2].slice(0, 4);
-
-  if (leadingZeros >= 4) {
-    return (
-      <span className={className}>
-        0.0<sub className="text-[0.7em] opacity-70">{leadingZeros}</sub>{significantDigits}
-      </span>
-    );
-  }
-
-  return <span className={className}>{price.toFixed(leadingZeros + 4)}</span>;
-}
 
 function formatPriceLabel(price: number | null): string {
   if (price == null) return '-';
@@ -102,27 +79,6 @@ function formatDuration(start: string | null, end: string | null): string {
 
   if (days > 0) return `${days}d ${hours}h`;
   return `${hours}h`;
-}
-
-function TokenAvatar({ tokenImage, tokenTicker }: { tokenImage: string | null; tokenTicker: string | null }) {
-  const [imageFailed, setImageFailed] = useState(false);
-  const fallback = tokenTicker ? tokenTicker[0] : '🪙';
-  const shouldRenderImage = !!tokenImage && !imageFailed && /^https?:\/\//i.test(tokenImage);
-
-  return (
-    <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center text-2xl overflow-hidden">
-      {shouldRenderImage ? (
-        <img
-          src={tokenImage}
-          alt={`${tokenTicker ?? 'Token'} logo`}
-          className="w-full h-full object-cover"
-          onError={() => setImageFailed(true)}
-        />
-      ) : (
-        fallback
-      )}
-    </div>
-  );
 }
 
 // Components
@@ -274,16 +230,18 @@ function PriceSlider({ floorPrice, currentPrice, maxPrice, userBidPrice }: {
 }) {
   const safeFloor = floorPrice ?? 0;
   const safeCurrent = currentPrice ?? safeFloor;
-  const safeMax = maxPrice ?? safeCurrent;
+  const safeMax = Math.max(maxPrice ?? safeCurrent, safeCurrent, safeFloor, userBidPrice ?? safeFloor);
   const range = Math.max(1e-12, safeMax - safeFloor);
-  const currentPercent = ((safeCurrent - safeFloor) / range) * 100;
-  const userBidPercent = userBidPrice ? ((userBidPrice - safeFloor) / range) * 100 : null;
+  const currentPercent = Math.max(0, Math.min(100, ((safeCurrent - safeFloor) / range) * 100));
+  const userBidPercent = userBidPrice != null
+    ? Math.max(0, Math.min(100, ((userBidPrice - safeFloor) / range) * 100))
+    : null;
 
   return (
     <div className="space-y-2">
       <div className="flex justify-between text-sm">
-        <span className="text-white/70">Floor</span>
-        <span className="text-white/70">Max Bid</span>
+        <span className="text-white/70">Min Clearing</span>
+        <span className="text-white/70">Max Clearing</span>
       </div>
 
       <div className="relative h-8">
@@ -620,7 +578,12 @@ export default function AuctionDetailPage() {
               </svg>
             </button>
             <div className="flex-1 flex items-center gap-3">
-              <TokenAvatar tokenImage={auction.tokenImage} tokenTicker={auction.tokenTicker} />
+              <TokenAvatar
+                tokenImage={auction.tokenImage}
+                tokenTicker={auction.tokenTicker}
+                className="w-full h-full"
+                fallbackClassName="w-10 h-10"
+              />
               <div>
                 <h1 className="text-xl font-bold text-white">{auction.tokenTicker ?? 'Unknown'}</h1>
                 <p className="text-white/60 text-sm">{auction.tokenName ?? 'Unknown token'}</p>
@@ -719,9 +682,32 @@ export default function AuctionDetailPage() {
             <PriceSlider
               floorPrice={auction.floorPrice}
               currentPrice={auction.currentClearingPrice}
-              maxPrice={auction.maxBidPrice}
+              maxPrice={auction.maxClearingPrice}
               userBidPrice={userBidPrice}
             />
+          </section>
+
+          {/* FDV Section */}
+          <section className="bg-white/20 backdrop-blur-md rounded-xl p-5 border border-white/30">
+            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <span>🧮</span> FDV
+            </h2>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-white/10 rounded-lg p-3">
+                <span className="text-white/60 text-xs block">Minimum FDV</span>
+                <span className="text-white font-semibold">
+                  {formatFdv(auction.minimumFdv)}{auction.currency ? ` ${auction.currency}` : ''}
+                </span>
+                <p className="text-white/50 text-xs mt-1">Based on floor price</p>
+              </div>
+              <div className="bg-white/10 rounded-lg p-3">
+                <span className="text-white/60 text-xs block">Current FDV</span>
+                <span className="text-white font-semibold">
+                  {formatFdv(auction.currentFdv)}{auction.currency ? ` ${auction.currency}` : ''}
+                </span>
+                <p className="text-white/50 text-xs mt-1">Based on clearing price</p>
+              </div>
+            </div>
           </section>
 
           {/* Raised Amount Section */}

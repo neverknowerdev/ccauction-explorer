@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  q96ToHuman,
+  q96ToPrice,
   tokenAmountToHuman,
   formatWalletAddress,
   formatCryptoPrice,
@@ -8,34 +8,34 @@ import {
 
 const Q96 = BigInt(2) ** BigInt(96);
 
-describe('q96ToHuman', () => {
+describe('q96ToPrice', () => {
   it('returns "0" for zero', () => {
-    expect(q96ToHuman(BigInt(0))).toBe('0');
-    expect(q96ToHuman('0')).toBe('0');
+    expect(q96ToPrice(BigInt(0), 18, 18)).toBe('0');
+    expect(q96ToPrice('0', 18, 18)).toBe('0');
   });
 
   it('returns whole number when remainder is zero', () => {
-    expect(q96ToHuman(Q96)).toBe('1');
-    expect(q96ToHuman(Q96 * 2n)).toBe('2');
-    expect(q96ToHuman(Q96 * 100n)).toBe('100');
+    expect(q96ToPrice(Q96, 18, 18)).toBe('1');
+    expect(q96ToPrice(Q96 * 2n, 18, 18)).toBe('2');
+    expect(q96ToPrice(Q96 * 100n, 18, 18)).toBe('100');
   });
 
   it('converts fractional Q96 to decimal string', () => {
     // 0.5 in Q96 = Q96/2 (exact in binary)
-    expect(q96ToHuman(Q96 / 2n)).toBe('0.5');
+    expect(q96ToPrice(Q96 / 2n, 18, 18)).toBe('0.5');
     // 0.25 in Q96 = Q96/4 (exact)
-    expect(q96ToHuman(Q96 / 4n)).toBe('0.25');
+    expect(q96ToPrice(Q96 / 4n, 18, 18)).toBe('0.25');
   });
 
   it('accepts string input', () => {
-    expect(q96ToHuman(Q96.toString())).toBe('1');
-    expect(q96ToHuman('0')).toBe('0');
+    expect(q96ToPrice(Q96.toString(), 18, 18)).toBe('1');
+    expect(q96ToPrice('0', 18, 18)).toBe('0');
   });
 
   it('preserves precision for large raw values (no Number loss)', () => {
     // 1 + 1/1000 in Q96: Decimal.js preserves full precision
     const raw = Q96 + Q96 / 1000n;
-    const result = q96ToHuman(raw);
+    const result = q96ToPrice(raw, 18, 18);
     // Result starts with expected value (Decimal.js may have more precision)
     expect(result.startsWith('1.000999999999999999')).toBe(true);
   });
@@ -43,14 +43,14 @@ describe('q96ToHuman', () => {
   it('trims trailing zeros in fractional part', () => {
     // 1.5 in Q96
     const raw = (Q96 * 3n) / 2n;
-    expect(q96ToHuman(raw)).toBe('1.5');
+    expect(q96ToPrice(raw, 18, 18)).toBe('1.5');
   });
 
   it('handles very small values without producing malformed strings', () => {
     // A very small Q96 value (1 / 2^96 ≈ 1.26e-29) is smaller than DB precision (1e-18)
     // So it correctly becomes "0" after limiting to 18 decimal places
     const raw = BigInt(1);
-    const result = q96ToHuman(raw);
+    const result = q96ToPrice(raw, 18, 18);
     // Should not produce "0." - should be clean "0"
     expect(result).not.toMatch(/\.$/);
     expect(result).toBe('0');
@@ -60,9 +60,22 @@ describe('q96ToHuman', () => {
     // A Q96 value that results in ~1e-13 should be preserved
     // 7922816251426400 / 2^96 ≈ 1e-13 which is within 18 decimal places
     const raw = BigInt('7922816251426400');
-    const result = q96ToHuman(raw);
+    const result = q96ToPrice(raw, 18, 18);
     expect(result).not.toBe('0');
     expect(result.startsWith('0.00000000000009')).toBe(true);
+  });
+
+  it('applies decimal shift for token/currency decimals (18/6)', () => {
+    // Verified from auction 323 (HUDL/USDC): floor raw 7922816251426400 should be ~0.1
+    const rawFloor = BigInt('7922816251426400');
+    const result = q96ToPrice(rawFloor, 18, 6);
+    expect(Number(result)).toBeCloseTo(0.1, 6);
+  });
+
+  it('converts known bid raw prices for HUDL/USDC correctly', () => {
+    // 8002044413940664 raw -> ~0.101 when applying 18/6 decimal shift
+    const result = q96ToPrice('8002044413940664', 18, 6);
+    expect(Number(result)).toBeCloseTo(0.101, 6);
   });
 });
 

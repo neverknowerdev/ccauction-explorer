@@ -19,6 +19,9 @@ import {
 } from 'viem';
 import { SUPPORTED_CHAINS, SUPPORTED_CHAIN_IDS, isChainSupported as isChainSupportedInConfig } from '@/lib/chains';
 import { createAlchemyClient, getContractCreationTxHash, type CoinGeckoTokenInfo, type EtherscanTokenInfo } from '@/lib/providers';
+import { getCurrencyDecimals } from '@/lib/currencies';
+import { q96ToPrice } from '@/utils/format';
+import Decimal from 'decimal.js';
 
 // ============================================================================
 // Known Contracts
@@ -280,10 +283,13 @@ export function formatDuration(seconds: number): string {
   return hours > 0 ? `${days} days ${hours} hr` : `${days} days`;
 }
 
-export function formatQ96Price(price: bigint): string {
-  const Q96 = BigInt(2) ** BigInt(96);
-  const priceNum = Number(price) / Number(Q96);
-  return priceNum.toFixed(18);
+export function formatQ96Price(
+  price: bigint,
+  tokenDecimals = 18,
+  currencyDecimals = 18
+): string {
+  const raw = q96ToPrice(price, tokenDecimals, currencyDecimals);
+  return new Decimal(raw).toFixed(18);
 }
 
 export function getCurrencySymbol(address: Address, chainId: number): string {
@@ -872,11 +878,12 @@ export function printAuctionInfo(
 
   const p = info.parameters;
   const currencySymbol = getCurrencySymbol(p.currency, info.chainId);
+  const currencyDecimals = getCurrencyDecimals(p.currency);
 
   console.log('\n⚙️ AUCTION PARAMETERS');
   console.log(subDivider);
   console.log(`  Currency:     ${p.currency === '0x0000000000000000000000000000000000000000' ? 'Native ETH' : p.currency} (${currencySymbol})`);
-  console.log(`  Floor Price:  ${formatQ96Price(p.floorPrice)} ${currencySymbol}/${info.tokenSymbol} (Q96: ${p.floorPrice})`);
+  console.log(`  Floor Price:  ${formatQ96Price(p.floorPrice, info.tokenDecimals, currencyDecimals)} ${currencySymbol}/${info.tokenSymbol} (Q96: ${p.floorPrice})`);
   console.log(`  Tick Spacing: ${p.tickSpacing} (Q96)`);
   console.log(`  Required Raised: ${p.requiredCurrencyRaised === BigInt(0) ? 'None' : formatUnits(p.requiredCurrencyRaised, 18) + ' ' + currencySymbol}`);
   console.log(`  Tokens Recipient:  ${p.tokensRecipient}`);

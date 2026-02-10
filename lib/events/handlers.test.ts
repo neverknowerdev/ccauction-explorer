@@ -114,6 +114,7 @@ vi.mock('@/lib/db', () => {
         id: auction.id,
         currency: auction.currency ?? null,
         isCurrencyStablecoin: auction.isCurrencyStablecoin ?? null,
+        tokenInfo: auction.tokenInfo ?? { decimals: 18 },
       } : null);
     }),
     getAuctionWithToken: vi.fn().mockImplementation((chainId: number, auctionAddress: string) => {
@@ -263,6 +264,7 @@ describe('Event Handlers', () => {
         address: '0xauctionaddress',
         status: 'active',
         currency: USDC_ADDRESS,
+        tokenInfo: { decimals: 18 },
       });
 
       const ctx = {
@@ -290,6 +292,7 @@ describe('Event Handlers', () => {
         address: '0xauctionaddress',
         status: 'active',
         currency: USDC_ADDRESS,
+        tokenInfo: { decimals: 18 },
       });
       mockState.bids.push({
         auctionId: 1,
@@ -320,6 +323,7 @@ describe('Event Handlers', () => {
         address: '0xauctionaddress',
         status: 'active',
         currency: USDC_ADDRESS,
+        tokenInfo: { decimals: 18 },
       });
 
       const ctx = {
@@ -345,6 +349,7 @@ describe('Event Handlers', () => {
         address: '0xauctionaddress',
         status: 'active',
         currency: USDC_ADDRESS,  // USDC = 6 decimals
+        tokenInfo: { decimals: 18 },
       });
 
       // Test cases from verified on-chain data:
@@ -375,19 +380,18 @@ describe('Event Handlers', () => {
       }
     });
 
-    it('should convert Q96 price to human-readable decimal via q96ToHuman', async () => {
+    it('should convert Q96 price to display decimal via q96ToPrice', async () => {
       mockState.auctions.push({
         id: 1,
         chainId: 84532,
         address: '0xauctionaddress',
         status: 'active',
         currency: USDC_ADDRESS,
+        tokenInfo: { decimals: 18 },
       });
 
       // Test cases from verified on-chain data:
-      // raw_price 8002044413940664 → 0.101 (after 10^12 decimal adjustment for 18-6 decimals)
-      // The stored value is q96ToHuman(price) which is approximately 0.000000000000101
-      // Display price = stored * 10^(tokenDecimals - currencyDecimals)
+      // raw_price 8002044413940664 -> 0.101 (already adjusted for 18-6 decimals)
       const testCases = [
         { rawPrice: '8002044413940664', expectedDisplay: 0.101 },
         { rawPrice: '8081272576454928', expectedDisplay: 0.102 },
@@ -408,13 +412,10 @@ describe('Event Handlers', () => {
 
         await handleBidSubmitted(ctx);
 
-        // maxPrice is stored as q96ToHuman(rawPrice)
-        // To get display price: storedPrice * 10^12 (for 18-6 decimal difference)
         const storedPrice = parseFloat(mockState.bids[i].maxPrice);
-        const displayPrice = storedPrice * 1e12;
 
-        // Verify the conversion is correct within tolerance
-        expect(displayPrice).toBeCloseTo(expectedDisplay, 2);
+        // Stored value is already final user-facing price
+        expect(storedPrice).toBeCloseTo(expectedDisplay, 2);
       }
     });
 
@@ -425,6 +426,7 @@ describe('Event Handlers', () => {
         address: '0xauctionaddress',
         status: 'active',
         currency: USDC_ADDRESS,
+        tokenInfo: { decimals: 18 },
       });
 
       // Verified data from on-chain event:
@@ -449,10 +451,9 @@ describe('Event Handlers', () => {
       const storedAmount = parseFloat(mockState.bids[0].amount);
       expect(storedAmount).toBeCloseTo(256.6, 1);
 
-      // Price stored as q96ToHuman, display needs 10^12 multiplier
+      // Price stored in final display units
       const storedPrice = parseFloat(mockState.bids[0].maxPrice);
-      const displayPrice = storedPrice * 1e12;
-      expect(displayPrice).toBeCloseTo(0.101, 2);
+      expect(storedPrice).toBeCloseTo(0.101, 2);
     });
   });
 
@@ -522,6 +523,7 @@ describe('Idempotency', () => {
       address: '0xauctionaddress',
       status: 'active',
       currency: USDC_ADDRESS,
+      tokenInfo: { decimals: 18 },
     });
 
     const ctx = {

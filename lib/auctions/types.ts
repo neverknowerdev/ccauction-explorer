@@ -22,6 +22,8 @@ export type AuctionListItem = {
   target: number | null;
   bidders: number;
   currency: string | null;
+  minimumFdv: number | null;
+  currentFdv: number | null;
 };
 
 export type AuctionSupplyInfo = {
@@ -50,7 +52,7 @@ export type AuctionDetail = AuctionListItem & {
   supplyInfo: AuctionSupplyInfo | null;
   floorPrice: number | null;
   currentClearingPrice: number | null;
-  maxBidPrice: number | null;
+  maxClearingPrice: number | null;
   extraFundsDestination: 'pool' | 'creator' | null;
   bids: AuctionBid[];
 };

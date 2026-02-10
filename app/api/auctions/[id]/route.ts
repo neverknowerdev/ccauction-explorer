@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
 import Decimal from 'decimal.js';
-import { countBidsForAuction, getAuctionById, type AuctionLinksJson, type AuctionTokenInfoJson } from '@/lib/db/queries';
+import {
+  countBidsForAuction,
+  getAuctionById,
+  getMaxClearingPriceForAuction,
+  type AuctionLinksJson,
+  type AuctionTokenInfoJson,
+} from '@/lib/db/queries';
 import { getCurrencyDecimals } from '@/lib/currencies';
 import type { AuctionDetail } from '@/lib/auctions/types';
 
@@ -33,6 +39,12 @@ function toTokenAmount(value: unknown, decimals: number): number | null {
   }
 }
 
+function calculateFdv(totalSupply: number | null, price: number | null): number | null {
+  if (totalSupply == null || price == null) return null;
+  const fdv = totalSupply * price;
+  return Number.isFinite(fdv) ? fdv : null;
+}
+
 export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
@@ -47,16 +59,21 @@ export async function GET(
     return NextResponse.json({ auction: null }, { status: 404 });
   }
 
-  const totalBids = await countBidsForAuction(auctionId);
+  const [totalBids, maxClearingPriceRaw] = await Promise.all([
+    countBidsForAuction(auctionId),
+    getMaxClearingPriceForAuction(auctionId),
+  ]);
 
   const token = (auctionRow.tokenInfo ?? null) as AuctionTokenInfoJson | null;
   const links = (auctionRow.links ?? null) as AuctionLinksJson | null;
   const supplyInfo = (auctionRow.supplyInfo ?? null) as SupplyInfoJson;
   const tokenDecimals = token?.decimals ?? 18;
+  const totalSupply = toTokenAmount(supplyInfo?.totalSupply, tokenDecimals);
 
   const floorPrice = toNumber(auctionRow.floorPrice);
   const currentClearingPrice = toNumber(auctionRow.currentClearingPrice);
-  const derivedMaxBidPrice = currentClearingPrice || floorPrice || null;
+  const maxClearingPrice = toNumber(maxClearingPriceRaw);
+  const derivedMaxClearingPrice = maxClearingPrice ?? currentClearingPrice ?? floorPrice ?? null;
 
   const auctionAddress = (auctionRow as { address: string }).address;
   const currencyAddress = auctionRow.currency ?? null;
@@ -83,14 +100,16 @@ export async function GET(
     tokenWebsite: links?.Website ?? links?.website ?? null,
     tokenDecimals: tokenDecimals ?? null,
     supplyInfo: supplyInfo ? {
-      totalSupply: toTokenAmount(supplyInfo.totalSupply, tokenDecimals) ?? 0,
+      totalSupply: totalSupply ?? 0,
       auctionSupply: toTokenAmount(supplyInfo.auctionAmount, tokenDecimals) ?? 0,
       poolSupply: toTokenAmount(supplyInfo.poolAmount, tokenDecimals) ?? 0,
       creatorRetained: toTokenAmount(supplyInfo.ownerRetained, tokenDecimals) ?? 0,
     } : null,
     floorPrice,
     currentClearingPrice,
-    maxBidPrice: derivedMaxBidPrice,
+    maxClearingPrice: derivedMaxClearingPrice,
+    minimumFdv: calculateFdv(totalSupply, floorPrice),
+    currentFdv: calculateFdv(totalSupply, currentClearingPrice),
     extraFundsDestination: auctionRow.extraFundsDestination ?? null,
     bids: [],
   };

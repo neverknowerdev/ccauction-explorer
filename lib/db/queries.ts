@@ -2,12 +2,13 @@
  * Database query utilities
  */
 
-import { eq, and, desc, max, sql } from 'drizzle-orm';
+import { eq, and, desc, max, sql, isNotNull } from 'drizzle-orm';
 import { db } from './index';
 import {
   auctions,
   bids,
   chains,
+  clearingPriceHistory,
   ethPrices,
   processedLogs,
   processedLogsErrors,
@@ -59,12 +60,18 @@ export async function getAuctionId(
 export async function getAuctionWithCurrency(
   chainId: number,
   auctionAddress: string
-): Promise<{ id: number; currency: string | null; isCurrencyStablecoin: boolean | null } | null> {
+): Promise<{
+  id: number;
+  currency: string | null;
+  isCurrencyStablecoin: boolean | null;
+  tokenInfo: AuctionTokenInfoJson;
+} | null> {
   const result = await db
     .select({
       id: auctions.id,
       currency: auctions.currency,
       isCurrencyStablecoin: auctions.isCurrencyStablecoin,
+      tokenInfo: auctions.tokenInfo,
     })
     .from(auctions)
     .where(
@@ -75,7 +82,14 @@ export async function getAuctionWithCurrency(
     )
     .limit(1);
 
-  return result.length > 0 ? result[0] : null;
+  if (result.length === 0) return null;
+  const row = result[0];
+  return {
+    id: row.id,
+    currency: row.currency,
+    isCurrencyStablecoin: row.isCurrencyStablecoin,
+    tokenInfo: row.tokenInfo as AuctionTokenInfoJson,
+  };
 }
 
 /** Token info stored in auctions.token_info jsonb */
@@ -285,8 +299,14 @@ function buildAuctionListBaseQuery(limit: number) {
 
 export async function listPlannedAuctions(limit = 10) {
   const query = buildAuctionListBaseQuery(limit);
-  // Include both explicit planned and just-created upcoming auctions.
-  return query.where(sql`${effectiveAuctionStatusSql} in ('planned', 'created')`);
+  // Show only auctions that reached planned state (TokensReceived fired).
+  return query.where(
+    and(
+      sql`${effectiveAuctionStatusSql} = 'planned'`,
+      isNotNull(auctions.startTime),
+      isNotNull(auctions.endTime)
+    )
+  );
 }
 
 export async function listActiveAndEndedAuctions(limit = 10, aboveThresholdOnly = true) {
@@ -403,4 +423,18 @@ export async function countBidsForAuction(auctionId: number): Promise<number> {
     .limit(1);
 
   return Number(result[0]?.count ?? 0);
+}
+
+export async function getMaxClearingPriceForAuction(auctionId: number): Promise<string | null> {
+  const result = await db
+    .select({ maxClearingPrice: max(clearingPriceHistory.clearingPrice) })
+    .from(clearingPriceHistory)
+    .where(eq(clearingPriceHistory.auctionId, auctionId))
+    .limit(1);
+
+  const value = result[0]?.maxClearingPrice;
+  if (value == null) return null;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : null;
+  return String(value);
 }

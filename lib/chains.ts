@@ -10,6 +10,8 @@ export interface SupportedChainConfig {
   chainId: number;
   chain: Chain;
   name: string;
+  /** Human-readable short title for UI. */
+  title: string;
   rpcUrl: string;
   explorer: string;
   blockTimeSeconds: number;
@@ -27,6 +29,7 @@ export const SUPPORTED_CHAINS: Record<number, SupportedChainConfig> = {
     chainId: 1,
     chain: mainnet,
     name: 'Ethereum Mainnet',
+    title: 'Ethereum',
     rpcUrl: process.env.ETH_RPC_URL || 'https://eth.drpc.org',
     explorer: 'https://etherscan.io',
     blockTimeSeconds: 12,
@@ -37,6 +40,7 @@ export const SUPPORTED_CHAINS: Record<number, SupportedChainConfig> = {
     chainId: 8453,
     chain: base,
     name: 'Base',
+    title: 'Base',
     rpcUrl: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
     explorer: 'https://basescan.org',
     blockTimeSeconds: 2,
@@ -47,6 +51,7 @@ export const SUPPORTED_CHAINS: Record<number, SupportedChainConfig> = {
     chainId: 84532,
     chain: baseSepolia,
     name: 'Base Sepolia',
+    title: 'Base Sepolia',
     rpcUrl: process.env.BASE_SEPOLIA_RPC_URL || 'https://sepolia.base.org',
     explorer: 'https://sepolia.basescan.org',
     blockTimeSeconds: 2,
@@ -57,6 +62,7 @@ export const SUPPORTED_CHAINS: Record<number, SupportedChainConfig> = {
     chainId: 11155111,
     chain: sepolia,
     name: 'Ethereum Sepolia',
+    title: 'Ethereum Sepolia',
     rpcUrl: process.env.ETH_SEPOLIA_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com',
     explorer: 'https://sepolia.etherscan.io',
     blockTimeSeconds: 12,
@@ -67,6 +73,7 @@ export const SUPPORTED_CHAINS: Record<number, SupportedChainConfig> = {
     chainId: 42161,
     chain: arbitrum,
     name: 'Arbitrum One',
+    title: 'Arbitrum',
     rpcUrl: process.env.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc',
     explorer: 'https://arbiscan.io',
     blockTimeSeconds: 0.25, // ~4 blocks per second
@@ -92,6 +99,11 @@ export function isChainSupported(chainId: number): boolean {
  */
 export function getChainConfig(chainId: number): SupportedChainConfig | undefined {
   return SUPPORTED_CHAINS[chainId];
+}
+
+/** Get human-readable chain title for UI usage. */
+export function getChainTitle(chainId: number): string | undefined {
+  return SUPPORTED_CHAINS[chainId]?.title;
 }
 
 /**

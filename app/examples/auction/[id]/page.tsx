@@ -3,6 +3,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import BottomNav from '@/components/BottomNav';
+import { FormattedPrice } from '@/components/auction/FormattedPrice';
+import { formatCryptoPrice } from '@/utils/format';
 
 // Types
 interface TokenSupplyInfo {
@@ -155,67 +157,6 @@ function formatNumber(num: number, decimals: number = 2): string {
   if (num >= 1_000_000) return (num / 1_000_000).toFixed(decimals) + 'M';
   if (num >= 1_000) return (num / 1_000).toFixed(decimals) + 'K';
   return num.toFixed(decimals);
-}
-
-// Subscript digits for crypto price formatting
-const SUBSCRIPT_DIGITS = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'];
-
-function toSubscript(num: number): string {
-  return num.toString().split('').map(d => SUBSCRIPT_DIGITS[parseInt(d)]).join('');
-}
-
-/**
- * Format price in crypto-standard notation
- * - Normal: 0.01303, 0.0005720
- * - Collapsed zeros: 0.0₄7466 (means 0.00007466, subscript shows zero count)
- */
-function formatPrice(price: number): string {
-  if (price === 0) return '0';
-  if (price >= 1) return price.toFixed(4);
-  if (price >= 0.001) return price.toFixed(6);
-
-  // For very small numbers, count leading zeros after decimal
-  const str = price.toFixed(18); // Max precision
-  const match = str.match(/^0\.(0*)([1-9]\d*)/);
-
-  if (!match) return price.toFixed(6);
-
-  const leadingZeros = match[1].length;
-  const significantDigits = match[2].slice(0, 4); // Keep 4 significant digits
-
-  // If 4 or more leading zeros, use subscript notation
-  if (leadingZeros >= 4) {
-    return `0.0${toSubscript(leadingZeros)}${significantDigits}`;
-  }
-
-  // Otherwise show normally with appropriate precision
-  return price.toFixed(leadingZeros + 4);
-}
-
-// Component version for better styling control
-function FormattedPrice({ price, className = '' }: { price: number; className?: string }) {
-  if (price === 0) return <span className={className}>0</span>;
-  if (price >= 0.001) {
-    return <span className={className}>{price >= 1 ? price.toFixed(4) : price.toFixed(6)}</span>;
-  }
-
-  const str = price.toFixed(18);
-  const match = str.match(/^0\.(0*)([1-9]\d*)/);
-
-  if (!match) return <span className={className}>{price.toFixed(6)}</span>;
-
-  const leadingZeros = match[1].length;
-  const significantDigits = match[2].slice(0, 4);
-
-  if (leadingZeros >= 4) {
-    return (
-      <span className={className}>
-        0.0<sub className="text-[0.7em] opacity-70">{leadingZeros}</sub>{significantDigits}
-      </span>
-    );
-  }
-
-  return <span className={className}>{price.toFixed(leadingZeros + 4)}</span>;
 }
 
 function formatTimeRemaining(endTime: Date): string {
@@ -412,7 +353,7 @@ function PriceSlider({ floorPrice, currentPrice, maxPrice, userBidPrice }: {
           <div
             className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-purple-500 rounded-full shadow-lg border-2 border-white transition-all duration-500"
             style={{ left: `calc(${userBidPercent}% - 8px)` }}
-            title={`Your bid: ${formatPrice(userBidPrice!)}`}
+            title={`Your bid: ${formatCryptoPrice(userBidPrice!)}`}
           />
         )}
       </div>

@@ -13,7 +13,7 @@ import {
 } from '@/lib/auction';
 import type { AuctionInfo } from '@/lib/auction/fetcher';
 import { getCurrencyName, getCurrencyDecimals, currencyAmountToHuman } from '@/lib/currencies';
-import { q96ToHuman } from '@/utils/format';
+import { q96ToPrice } from '@/utils/format';
 import type { EventContext } from '../types';
 import { missingParamsError } from '../errors';
 import { getTokenInfo, type CoinGeckoTokenInfo } from '@/lib/providers';
@@ -153,6 +153,7 @@ export async function handleAuctionCreated(ctx: EventContext): Promise<void> {
     // Use requiredCurrencyRaised which is the currency target, not auctionAmount (which is token quantity)
     const currencyDecimals = getCurrencyDecimals(info.parameters.currency);
     const targetAmount = currencyAmountToHuman(info.parameters.requiredCurrencyRaised, currencyDecimals);
+    const floorPrice = q96ToPrice(info.parameters.floorPrice, info.tokenDecimals, currencyDecimals);
 
     // Convert auctionAmount (token quantity) using token decimals
     const auctionTokenSupply = currencyAmountToHuman(info.auctionAmount, info.tokenDecimals);
@@ -166,7 +167,7 @@ export async function handleAuctionCreated(ctx: EventContext): Promise<void> {
         validationHookAddress: info.parameters.validationHook,
         startTime: info.timeInfo.startTime,
         endTime: info.timeInfo.endTime,
-        floorPrice: q96ToHuman(info.parameters.floorPrice),
+        floorPrice,
         currentClearingPrice: null, // can be filled by later events
         targetAmount,
         auctionTokenSupply,

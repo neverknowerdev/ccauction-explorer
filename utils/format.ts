@@ -22,13 +22,25 @@ function stripTrailingZeros(str: string): string {
 }
 
 /**
- * Convert Q96 fixed-point price (from contract) to human-readable decimal string for DB/display.
- * Uses Decimal.js for arbitrary precision arithmetic.
- * Output is limited to 18 decimal places to match PostgreSQL numeric(30,18) columns.
+ * Convert Q96 fixed-point price (from contract) to a display/storage price that accounts for
+ * token and currency decimals.
+ *
+ * Contracts emit price in raw ratio units. To get user-facing price (currency per 1 token),
+ * we apply:
+ *   (raw / 2^96) * 10^(tokenDecimals - currencyDecimals)
  */
-export function q96ToHuman(raw: bigint | string): string {
+export function q96ToPrice(
+  raw: bigint | string,
+  tokenDecimals: number,
+  currencyDecimals: number
+): string {
+  const safeTokenDecimals = Number.isFinite(tokenDecimals) ? tokenDecimals : 18;
+  const safeCurrencyDecimals = Number.isFinite(currencyDecimals) ? currencyDecimals : 18;
+  const decimalShift = safeTokenDecimals - safeCurrencyDecimals;
+
   const value = new Decimal(raw.toString());
-  const result = value.div(Q96_DECIMAL);
+  const ratio = value.div(Q96_DECIMAL);
+  const result = ratio.mul(new Decimal(10).pow(decimalShift));
   // Use toFixed(18) to match DB precision, then strip trailing zeros for cleaner output
   return stripTrailingZeros(result.toFixed(DB_DECIMAL_PLACES));
 }

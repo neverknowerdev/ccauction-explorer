@@ -3,34 +3,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import BottomNav from '@/components/BottomNav';
+import { FormattedPrice } from '@/components/auction/FormattedPrice';
+import { TokenAvatar } from '@/components/auction/TokenAvatar';
 import type { AuctionListItem, AuctionStats, AuctionStatus } from '@/lib/auctions/types';
-
-// Price display component with subscript notation
-function FormattedPrice({ price, className = '' }: { price: number | null; className?: string }) {
-  if (price == null) return <span className={className}>-</span>;
-  if (price === 0) return <span className={className}>0</span>;
-  if (price >= 0.001) {
-    return <span className={className}>{price >= 1 ? price.toFixed(4) : price.toFixed(6)}</span>;
-  }
-
-  const str = price.toFixed(18);
-  const match = str.match(/^0\.(0*)([1-9]\d*)/);
-
-  if (!match) return <span className={className}>{price.toFixed(6)}</span>;
-
-  const leadingZeros = match[1].length;
-  const significantDigits = match[2].slice(0, 4);
-
-  if (leadingZeros >= 4) {
-    return (
-      <span className={className}>
-        0.0<sub className="text-[0.7em] opacity-70">{leadingZeros}</sub>{significantDigits}
-      </span>
-    );
-  }
-
-  return <span className={className}>{price.toFixed(leadingZeros + 4)}</span>;
-}
+import { formatFdv } from '@/app/helpers/auction-view-helpers';
 
 function StatusBadge({ status }: { status: AuctionStatus }) {
   const config: Record<AuctionStatus, { bg: string; text: string; label: string; pulse?: boolean }> = {
@@ -52,22 +28,35 @@ function StatusBadge({ status }: { status: AuctionStatus }) {
   );
 }
 
-const CHAIN_META: Record<number, { label: string; color: string }> = {
-  1: { label: 'ETH', color: 'bg-gray-700/60 text-gray-100' },
-  8453: { label: 'BASE', color: 'bg-blue-600/70 text-white' },
-  84532: { label: 'BASE', color: 'bg-blue-600/50 text-white' },
-  42161: { label: 'ARB', color: 'bg-sky-600/70 text-white' },
+const CHAIN_META: Record<number, { label: string; logoSrc: string }> = {
+  1: { label: 'Ethereum', logoSrc: '/chains/ethereum.svg' },
+  11155111: { label: 'Ethereum Sepolia', logoSrc: '/chains/ethereum.svg' },
+  8453: { label: 'Base', logoSrc: '/chains/base.svg' },
+  84532: { label: 'Base Sepolia', logoSrc: '/chains/base.svg' },
+  42161: { label: 'Arbitrum', logoSrc: '/chains/arbitrium.svg' },
 };
 
 function ChainBadge({ chainId, chainName }: { chainId: number; chainName: string | null }) {
   const meta = CHAIN_META[chainId];
-  const label = meta?.label ?? (chainName ? chainName.slice(0, 4).toUpperCase() : `#${chainId}`);
-  const color = meta?.color ?? 'bg-white/20 text-white';
+  const label = meta?.label ?? chainName ?? `Chain ${chainId}`;
+
+  if (!meta) {
+    const fallback = chainName ? chainName.slice(0, 4).toUpperCase() : `#${chainId}`;
+    return (
+      <span className="bg-white/20 text-white text-[10px] px-2 py-1 rounded-full uppercase tracking-wide">
+        {fallback}
+      </span>
+    );
+  }
 
   return (
-    <span className={`${color} text-[10px] px-2 py-1 rounded-full uppercase tracking-wide`}>
-      {label}
-    </span>
+    <img
+      src={meta.logoSrc}
+      alt={`${label} logo`}
+      className="w-8 h-8 object-contain"
+      title={label}
+      aria-label={label}
+    />
   );
 }
 
@@ -119,27 +108,6 @@ function getTimeLabel(auction: AuctionListItem): string {
   return 'TBD';
 }
 
-function TokenAvatar({ tokenImage, tokenTicker }: { tokenImage: string | null; tokenTicker: string | null }) {
-  const [imageFailed, setImageFailed] = useState(false);
-  const fallback = tokenTicker ? tokenTicker[0] : '🪙';
-  const shouldRenderImage = !!tokenImage && !imageFailed && /^https?:\/\//i.test(tokenImage);
-
-  return (
-    <div className="w-14 h-14 bg-white/20 rounded-lg flex items-center justify-center text-2xl flex-shrink-0 overflow-hidden">
-      {shouldRenderImage ? (
-        <img
-          src={tokenImage}
-          alt={`${tokenTicker ?? 'Token'} logo`}
-          className="w-full h-full object-cover"
-          onError={() => setImageFailed(true)}
-        />
-      ) : (
-        fallback
-      )}
-    </div>
-  );
-}
-
 function AuctionCard({ auction }: { auction: AuctionListItem }) {
   const raised = auction.raised ?? 0;
   const target = auction.target ?? 0;
@@ -153,7 +121,12 @@ function AuctionCard({ auction }: { auction: AuctionListItem }) {
       className="block bg-white/20 backdrop-blur-md rounded-xl p-4 border border-white/30 hover:bg-white/30 transition-colors"
     >
       <div className="flex gap-4">
-        <TokenAvatar tokenImage={auction.tokenImage} tokenTicker={auction.tokenTicker} />
+        <TokenAvatar
+          tokenImage={auction.tokenImage}
+          tokenTicker={auction.tokenTicker}
+          className="w-full h-full"
+          fallbackClassName="w-14 h-14 flex-shrink-0"
+        />
         <div className="flex-1 min-w-0">
           <div className="flex justify-between items-start mb-1">
             <div className="min-w-0">
@@ -194,6 +167,12 @@ function AuctionCard({ auction }: { auction: AuctionListItem }) {
                 {timeLeft}
               </p>
             </div>
+          </div>
+          <div className="mt-2 text-right">
+            <p className="text-white/45 text-xs">
+              Min FDV: <span className="text-white/80">{formatFdv(auction.minimumFdv)}</span>
+              {auction.currency ? ` ${auction.currency}` : ''}
+            </p>
           </div>
         </div>
       </div>
@@ -311,18 +290,18 @@ export default function LiveAuctionsPage() {
         <main className="px-6 py-6 space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex gap-2">
-            {(['all', 'live', 'planned', 'ended'] as const).map((filter) => (
-              <button
-                key={filter}
-                onClick={() => setStatusFilter(filter)}
-                className={`px-3 py-1.5 rounded-full text-sm transition-colors ${statusFilter === filter
-                  ? 'bg-white text-purple-900'
-                  : 'bg-white/10 text-white/80 hover:bg-white/20'
-                  }`}
-              >
-                {filter === 'all' ? 'All' : filter.charAt(0).toUpperCase() + filter.slice(1)}
-              </button>
-            ))}
+              {(['all', 'live', 'planned', 'ended'] as const).map((filter) => (
+                <button
+                  key={filter}
+                  onClick={() => setStatusFilter(filter)}
+                  className={`px-3 py-1.5 rounded-full text-sm transition-colors ${statusFilter === filter
+                    ? 'bg-white text-purple-900'
+                    : 'bg-white/10 text-white/80 hover:bg-white/20'
+                    }`}
+                >
+                  {filter === 'all' ? 'All' : filter.charAt(0).toUpperCase() + filter.slice(1)}
+                </button>
+              ))}
             </div>
             <select
               value={chainFilter}
@@ -375,12 +354,18 @@ export default function LiveAuctionsPage() {
             </section>
           )}
 
-          {!loading && !error && filteredSections.planned.length > 0 && (
+          {!loading && !error && (statusFilter === 'all' || statusFilter === 'planned') && (
             <section className="space-y-3 pt-2">
               <h2 className="text-white/80 text-xs uppercase tracking-wide">Planned</h2>
-              {filteredSections.planned.map((auction) => (
-                <AuctionCard key={auction.id} auction={auction} />
-              ))}
+              {filteredSections.planned.length > 0 ? (
+                filteredSections.planned.map((auction) => (
+                  <AuctionCard key={auction.id} auction={auction} />
+                ))
+              ) : (
+                <p className="text-white/45 text-xs leading-relaxed normal-case tracking-normal">
+                  There are no planned auctions yet, but they can appear at any time!
+                </p>
+              )}
             </section>
           )}
 
