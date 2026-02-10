@@ -84,7 +84,10 @@ function isStablecoin(categories: string[] | null | undefined): boolean {
   return categories.some((c) => c.toLowerCase().includes('stablecoin'));
 }
 
-async function upsertAuctionFromInfo(info: AuctionInfo, sourceCodeHash: string | null = null): Promise<void> {
+export async function upsertAuctionFromInfo(
+  info: AuctionInfo,
+  sourceCodeHash: string | null = null
+): Promise<void> {
   const auctionAddress = info.auctionAddress.toLowerCase();
   const tokenMeta =
     (await getTokenInfo(info.tokenAddress, info.chainId)) ??

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import Decimal from 'decimal.js';
 import { countBidsForAuction, getAuctionById, type AuctionLinksJson, type AuctionTokenInfoJson } from '@/lib/db/queries';
+import { getCurrencyDecimals } from '@/lib/currencies';
 import type { AuctionDetail } from '@/lib/auctions/types';
 
 type SupplyInfoJson = {
@@ -57,10 +58,16 @@ export async function GET(
   const currentClearingPrice = toNumber(auctionRow.currentClearingPrice);
   const derivedMaxBidPrice = currentClearingPrice || floorPrice || null;
 
+  const auctionAddress = (auctionRow as { address: string }).address;
+  const currencyAddress = auctionRow.currency ?? null;
+  const currencyDecimals = getCurrencyDecimals(currencyAddress);
   const detail: AuctionDetail = {
     id: auctionRow.id,
     chainId: auctionRow.chainId,
     chainName: auctionRow.chainName ?? null,
+    address: auctionAddress,
+    currencyAddress,
+    currencyDecimals,
     tokenTicker: token?.symbol ?? null,
     tokenName: token?.name ?? null,
     tokenImage: token?.icon ?? token?.logo ?? null,

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import BottomNav from '@/components/BottomNav';
-import type { AuctionListItem, AuctionStatus } from '@/lib/auctions/types';
+import type { AuctionListItem, AuctionStats, AuctionStatus } from '@/lib/auctions/types';
 
 // Price display component with subscript notation
 function FormattedPrice({ price, className = '' }: { price: number | null; className?: string }) {
@@ -119,27 +119,139 @@ function getTimeLabel(auction: AuctionListItem): string {
   return 'TBD';
 }
 
+function TokenAvatar({ tokenImage, tokenTicker }: { tokenImage: string | null; tokenTicker: string | null }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const fallback = tokenTicker ? tokenTicker[0] : '🪙';
+  const shouldRenderImage = !!tokenImage && !imageFailed && /^https?:\/\//i.test(tokenImage);
+
+  return (
+    <div className="w-14 h-14 bg-white/20 rounded-lg flex items-center justify-center text-2xl flex-shrink-0 overflow-hidden">
+      {shouldRenderImage ? (
+        <img
+          src={tokenImage}
+          alt={`${tokenTicker ?? 'Token'} logo`}
+          className="w-full h-full object-cover"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        fallback
+      )}
+    </div>
+  );
+}
+
+function AuctionCard({ auction }: { auction: AuctionListItem }) {
+  const raised = auction.raised ?? 0;
+  const target = auction.target ?? 0;
+  const raisedPercent = target > 0 ? (raised / target) * 100 : 0;
+  const timeLeft = getTimeLabel(auction);
+
+  return (
+    <Link
+      key={auction.id}
+      href={`/auction/${auction.id}`}
+      className="block bg-white/20 backdrop-blur-md rounded-xl p-4 border border-white/30 hover:bg-white/30 transition-colors"
+    >
+      <div className="flex gap-4">
+        <TokenAvatar tokenImage={auction.tokenImage} tokenTicker={auction.tokenTicker} />
+        <div className="flex-1 min-w-0">
+          <div className="flex justify-between items-start mb-1">
+            <div className="min-w-0">
+              <h3 className="font-semibold text-white truncate">{auction.tokenTicker ?? 'Unknown'}</h3>
+              <p className="text-white/60 text-xs truncate">{auction.tokenName ?? 'Unknown token'}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <ChainBadge chainId={auction.chainId} chainName={auction.chainName} />
+              <StatusBadge status={auction.status as AuctionStatus} />
+            </div>
+          </div>
+
+          <div className="my-2">
+            <RaisedProgressMini percent={raisedPercent} />
+          </div>
+
+          <div className="flex justify-between items-center text-sm">
+            <div>
+              <p className="text-white/50 text-xs">Price</p>
+              <p className="text-white font-medium">
+                <FormattedPrice price={auction.currentPrice} />
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-white/50 text-xs">Raised</p>
+              <p className="text-white font-medium">
+                {auction.raised != null ? auction.raised.toFixed(2) : '-'} {auction.currency ?? ''}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-white/50 text-xs">
+                {(auction.status === 'ended' || auction.status === 'claimable' || auction.status === 'graduated') ? 'Status' : 'Time'}
+              </p>
+              <p className={`font-medium ${auction.status === 'active' ? 'text-green-300' :
+                auction.status === 'planned' ? 'text-blue-300' :
+                  'text-white/70'
+                }`}>
+                {timeLeft}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
 export default function LiveAuctionsPage() {
   const [auctions, setAuctions] = useState<AuctionListItem[]>([]);
+  const [plannedAuctions, setPlannedAuctions] = useState<AuctionListItem[]>([]);
+  const [activeAuctions, setActiveAuctions] = useState<AuctionListItem[]>([]);
+  const [endedAuctions, setEndedAuctions] = useState<AuctionListItem[]>([]);
+  const [stats, setStats] = useState<AuctionStats>({
+    total: 0,
+    totalIncludingTest: 0,
+    active: 0,
+    ended: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'live' | 'planned' | 'ended'>('all');
   const [chainFilter, setChainFilter] = useState<'all' | number>('all');
+  const [includeBelowThreshold, setIncludeBelowThreshold] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
     setLoading(true);
-    fetch('/api/auctions', { cache: 'no-store' })
+    const url = includeBelowThreshold ? '/api/auctions?above_threshold=all' : '/api/auctions';
+    fetch(url, { cache: 'no-store' })
       .then(async (res) => {
         if (!res.ok) {
           throw new Error(`Failed to load auctions (${res.status})`);
         }
         const data = await res.json();
-        return (data?.auctions ?? []) as AuctionListItem[];
+        const planned = (data?.plannedAuctions ?? []) as AuctionListItem[];
+        const active = (data?.activeAuctions ?? []) as AuctionListItem[];
+        const ended = (data?.endedAuctions ?? []) as AuctionListItem[];
+        const all = (data?.auctions ?? [...active, ...planned, ...ended]) as AuctionListItem[];
+        return {
+          auctions: all,
+          plannedAuctions: planned,
+          activeAuctions: active,
+          endedAuctions: ended,
+          stats: (data?.stats ?? {
+            total: 0,
+            totalIncludingTest: 0,
+            active: 0,
+            ended: 0,
+          }) as AuctionStats,
+        };
       })
       .then((data) => {
         if (!isMounted) return;
-        setAuctions(data);
+        setAuctions(data.auctions);
+        setPlannedAuctions(data.plannedAuctions);
+        setActiveAuctions(data.activeAuctions);
+        setEndedAuctions(data.endedAuctions);
+        setStats(data.stats);
         setError(null);
       })
       .catch((err: Error) => {
@@ -154,27 +266,25 @@ export default function LiveAuctionsPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [includeBelowThreshold]);
 
-  const activeCount = useMemo(
-    () => auctions.filter(a => a.status === 'active').length,
-    [auctions]
-  );
+  const filteredSections = useMemo(() => {
+    const applyChainFilter = (items: AuctionListItem[]) =>
+      chainFilter === 'all' ? items : items.filter((a) => a.chainId === chainFilter);
 
-  const filteredAuctions = useMemo(() => {
-    let result = auctions;
-    if (statusFilter === 'live') {
-      result = result.filter(a => a.status === 'active');
-    } else if (statusFilter === 'planned') {
-      result = result.filter(a => a.status === 'planned' || a.status === 'created');
-    } else if (statusFilter === 'ended') {
-      result = result.filter(a => a.status === 'ended' || a.status === 'claimable' || a.status === 'graduated');
-    }
-    if (chainFilter !== 'all') {
-      result = result.filter(a => a.chainId === chainFilter);
-    }
-    return result;
-  }, [auctions, statusFilter, chainFilter]);
+    const live = applyChainFilter(activeAuctions);
+    const planned = applyChainFilter(plannedAuctions);
+    const ended = applyChainFilter(endedAuctions);
+
+    if (statusFilter === 'live') return { live, planned: [], ended: [] };
+    if (statusFilter === 'planned') return { live: [], planned, ended: [] };
+    if (statusFilter === 'ended') return { live: [], planned: [], ended };
+    return { live, planned, ended };
+  }, [activeAuctions, plannedAuctions, endedAuctions, statusFilter, chainFilter]);
+
+  const totalFilteredAuctions = filteredSections.live.length
+    + filteredSections.planned.length
+    + filteredSections.ended.length;
 
   const chainOptions = useMemo(() => {
     const ids = Array.from(new Set(auctions.map(a => a.chainId)));
@@ -192,7 +302,7 @@ export default function LiveAuctionsPage() {
           <div>
             <h1 className="text-2xl font-bold text-white">Auctions</h1>
             <p className="text-white/80 text-sm mt-1">
-              {activeCount} active · {auctions.length} total
+              {stats.totalIncludingTest} auctions total · {stats.active} active
             </p>
           </div>
         </header>
@@ -230,6 +340,15 @@ export default function LiveAuctionsPage() {
               ))}
             </select>
           </div>
+          <label className="flex items-center gap-2 text-sm text-white/80 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={includeBelowThreshold}
+              onChange={(e) => setIncludeBelowThreshold(e.target.checked)}
+              className="rounded border-white/30 bg-white/10 text-purple-500 focus:ring-purple-500"
+            />
+            Include below-threshold auctions
+          </label>
 
           {loading && (
             <div className="flex items-center justify-center py-10">
@@ -243,74 +362,36 @@ export default function LiveAuctionsPage() {
             </div>
           )}
 
-          {!loading && !error && filteredAuctions.length === 0 && (
+          {!loading && !error && totalFilteredAuctions === 0 && (
             <div className="text-center text-white/70 py-10">No auctions found.</div>
           )}
 
-          {!loading && !error && filteredAuctions.map((auction) => {
-            const raised = auction.raised ?? 0;
-            const target = auction.target ?? 0;
-            const raisedPercent = target > 0 ? (raised / target) * 100 : 0;
-            const timeLeft = getTimeLabel(auction);
-            const tokenImage = auction.tokenImage ?? (auction.tokenTicker ? auction.tokenTicker[0] : '🪙');
+          {!loading && !error && filteredSections.live.length > 0 && (
+            <section className="space-y-3">
+              <h2 className="text-white/80 text-xs uppercase tracking-wide">Live</h2>
+              {filteredSections.live.map((auction) => (
+                <AuctionCard key={auction.id} auction={auction} />
+              ))}
+            </section>
+          )}
 
-            return (
-              <Link
-                key={auction.id}
-                href={`/auction/${auction.id}`}
-                className="block bg-white/20 backdrop-blur-md rounded-xl p-4 border border-white/30 hover:bg-white/30 transition-colors"
-              >
-                <div className="flex gap-4">
-                  <div className="w-14 h-14 bg-white/20 rounded-lg flex items-center justify-center text-2xl flex-shrink-0">
-                    {tokenImage}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-start mb-1">
-                      <div className="min-w-0">
-                        <h3 className="font-semibold text-white truncate">{auction.tokenTicker ?? 'Unknown'}</h3>
-                        <p className="text-white/60 text-xs truncate">{auction.tokenName ?? 'Unknown token'}</p>
-                      </div>
-                    <div className="flex items-center gap-2">
-                      <ChainBadge chainId={auction.chainId} chainName={auction.chainName} />
-                      <StatusBadge status={auction.status as AuctionStatus} />
-                    </div>
-                    </div>
+          {!loading && !error && filteredSections.planned.length > 0 && (
+            <section className="space-y-3 pt-2">
+              <h2 className="text-white/80 text-xs uppercase tracking-wide">Planned</h2>
+              {filteredSections.planned.map((auction) => (
+                <AuctionCard key={auction.id} auction={auction} />
+              ))}
+            </section>
+          )}
 
-                    {/* Progress bar */}
-                    <div className="my-2">
-                      <RaisedProgressMini percent={raisedPercent} />
-                    </div>
-
-                    <div className="flex justify-between items-center text-sm">
-                      <div>
-                        <p className="text-white/50 text-xs">Price</p>
-                        <p className="text-white font-medium">
-                          <FormattedPrice price={auction.currentPrice} />
-                        </p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-white/50 text-xs">Raised</p>
-                        <p className="text-white font-medium">
-                          {auction.raised != null ? auction.raised.toFixed(2) : '-'} {auction.currency ?? ''}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-white/50 text-xs">
-                          {(auction.status === 'ended' || auction.status === 'claimable' || auction.status === 'graduated') ? 'Status' : 'Time'}
-                        </p>
-                        <p className={`font-medium ${auction.status === 'active' ? 'text-green-300' :
-                          auction.status === 'planned' ? 'text-blue-300' :
-                            'text-white/70'
-                          }`}>
-                          {timeLeft}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
+          {!loading && !error && filteredSections.ended.length > 0 && (
+            <section className="space-y-3 pt-2">
+              <h2 className="text-white/80 text-xs uppercase tracking-wide">Ended</h2>
+              {filteredSections.ended.map((auction) => (
+                <AuctionCard key={auction.id} auction={auction} />
+              ))}
+            </section>
+          )}
         </main>
       </div>
       <BottomNav />

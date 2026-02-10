@@ -1,5 +1,12 @@
 export type AuctionStatus = 'created' | 'planned' | 'active' | 'graduated' | 'claimable' | 'ended';
 
+export type AuctionStats = {
+  total: number;
+  totalIncludingTest: number;
+  active: number;
+  ended: number;
+};
+
 export type AuctionListItem = {
   id: number;
   chainId: number;
@@ -34,6 +41,9 @@ export type AuctionBid = {
 };
 
 export type AuctionDetail = AuctionListItem & {
+  address: string;
+  currencyAddress: string | null;
+  currencyDecimals: number;
   tokenDescription: string | null;
   tokenWebsite: string | null;
   tokenDecimals: number | null;

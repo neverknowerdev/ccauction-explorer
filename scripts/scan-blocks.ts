@@ -12,7 +12,7 @@
  *   ALCHEMY_API_KEY - Alchemy API key for RPC access
  *   BLOCK_SCAN_LIMIT - Optional. If set, exit after scanning this many blocks (total across chains).
  *   CHAINS_TO_SCAN - Optional. Comma-separated chain IDs (e.g. "1,8453"). If set, scan only these; otherwise scan all active chains from DB.
- *   START_BLOCK_NUMBER - Optional. If set, use as start block when nothing in DB yet (for all chains); otherwise use per-chain Jan 1, 2026 defaults.
+ *   START_BLOCK_NUMBER - Optional. If set, use as start block (priority). If not set, resume from latest processed block in DB or per-chain default for first run.
  */
 
 import type { Hex } from 'viem';
@@ -52,7 +52,7 @@ function getChainsToScan(): number[] | undefined {
     .filter(n => !Number.isNaN(n));
 }
 
-/** If set, use as start block when nothing in DB yet (for all chains). */
+/** If set, use as start block (priority over DB and defaults). */
 const START_BLOCK_NUMBER = process.env.START_BLOCK_NUMBER
   ? parseInt(process.env.START_BLOCK_NUMBER, 10)
   : undefined;
@@ -132,22 +132,24 @@ async function main() {
 
   // Process each chain
   for (const chainId of activeChainIds) {
-    // Start from MAX(block_number) - 1 from processed_logs for this chain (we skip already processed logs)
+    // START_BLOCK_NUMBER has priority; otherwise resume from latest processed block or use per-chain default
     const maxProcessedBlock = await getLatestProcessedBlock(chainId);
     let startBlock: number;
 
-    if (maxProcessedBlock == null || maxProcessedBlock === 0) {
-      // No logs processed yet - use START_BLOCK_NUMBER if set, else per-chain default
+    if (START_BLOCK_NUMBER != null) {
+      startBlock = START_BLOCK_NUMBER;
+      console.log(`Chain ${chainId}: starting from block ${startBlock} (START_BLOCK_NUMBER)`);
+    } else if (maxProcessedBlock != null && maxProcessedBlock > 0) {
+      startBlock = maxProcessedBlock - 1;
+      console.log(`Chain ${chainId}: resuming from block ${startBlock} (max processed: ${maxProcessedBlock})`);
+    } else {
       const defaultStart = getDefaultStartBlock(chainId);
-      startBlock = START_BLOCK_NUMBER ?? defaultStart ?? 0;
+      startBlock = defaultStart ?? 0;
       if (startBlock === 0) {
         console.warn(`No start block defined for chain ${chainId}, skipping`);
         continue;
       }
-      console.log(`First scan for chain ${chainId}, starting from block ${startBlock}${START_BLOCK_NUMBER != null ? ' (START_BLOCK_NUMBER)' : ' (default)'}`);
-    } else {
-      startBlock = maxProcessedBlock - 1;
-      console.log(`Chain ${chainId}: resuming from block ${startBlock} (max processed: ${maxProcessedBlock})`);
+      console.log(`First scan for chain ${chainId}, starting from block ${startBlock} (default)`);
     }
 
     // Get latest block from chain

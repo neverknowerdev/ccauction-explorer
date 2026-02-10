@@ -1,11 +1,14 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useAccount } from 'wagmi';
+import { useAccount, useChainId, usePublicClient, useSwitchChain, useWriteContract } from 'wagmi';
+import { parseUnits } from 'viem';
 import { useDynamicContext } from '@dynamic-labs/sdk-react-core';
 import BottomNav from '@/components/BottomNav';
 import type { AuctionBid, AuctionDetail } from '@/lib/auctions/types';
+import { ccaAuctionAbi } from '@/lib/contracts/abis';
+import { priceToQ96 } from '@/lib/contracts/encoder';
 
 // Utility functions
 function formatNumber(num: number, decimals: number = 2): string {
@@ -99,6 +102,27 @@ function formatDuration(start: string | null, end: string | null): string {
 
   if (days > 0) return `${days}d ${hours}h`;
   return `${hours}h`;
+}
+
+function TokenAvatar({ tokenImage, tokenTicker }: { tokenImage: string | null; tokenTicker: string | null }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const fallback = tokenTicker ? tokenTicker[0] : '🪙';
+  const shouldRenderImage = !!tokenImage && !imageFailed && /^https?:\/\//i.test(tokenImage);
+
+  return (
+    <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center text-2xl overflow-hidden">
+      {shouldRenderImage ? (
+        <img
+          src={tokenImage}
+          alt={`${tokenTicker ?? 'Token'} logo`}
+          className="w-full h-full object-cover"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        fallback
+      )}
+    </div>
+  );
 }
 
 // Components
@@ -413,6 +437,10 @@ export default function AuctionDetailPage() {
   const router = useRouter();
   const auctionId = params.id as string;
   const { address } = useAccount();
+  const chainId = useChainId();
+  const publicClient = usePublicClient();
+  const { switchChainAsync } = useSwitchChain();
+  const { writeContractAsync } = useWriteContract();
   const { setShowAuthFlow } = useDynamicContext();
 
   const [auction, setAuction] = useState<AuctionDetail | null>(null);
@@ -423,6 +451,8 @@ export default function AuctionDetailPage() {
   const [showBidForm, setShowBidForm] = useState(false);
   const [newBidAmount, setNewBidAmount] = useState('');
   const [newBidPrice, setNewBidPrice] = useState('');
+  const [bidError, setBidError] = useState<string | null>(null);
+  const [isSubmittingBid, setIsSubmittingBid] = useState(false);
 
   // Find highest user bid price for the price slider
   const userBidPrice = useMemo(() => {
@@ -449,25 +479,27 @@ export default function AuctionDetailPage() {
       .finally(() => setLoading(false));
   }, [auctionId]);
 
-  useEffect(() => {
-    if (!address) {
+  const fetchUserBids = useCallback(async (wallet?: string) => {
+    if (!wallet) {
       setUserBids([]);
       return;
     }
     setUserBidsLoading(true);
-    fetch(`/api/auctions/${auctionId}/bids?wallet=${address}`, { cache: 'no-store' })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`Failed to load bids (${res.status})`);
-        return res.json();
-      })
-      .then((data) => {
-        setUserBids((data?.bids ?? []) as AuctionBid[]);
-      })
-      .catch(() => {
-        setUserBids([]);
-      })
-      .finally(() => setUserBidsLoading(false));
-  }, [auctionId, address]);
+    try {
+      const res = await fetch(`/api/auctions/${auctionId}/bids?wallet=${wallet}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`Failed to load bids (${res.status})`);
+      const data = await res.json();
+      setUserBids((data?.bids ?? []) as AuctionBid[]);
+    } catch {
+      setUserBids([]);
+    } finally {
+      setUserBidsLoading(false);
+    }
+  }, [auctionId]);
+
+  useEffect(() => {
+    fetchUserBids(address);
+  }, [address, fetchUserBids]);
 
   const handleCancelBid = (bidId: string) => {
     if (!auction) return;
@@ -475,31 +507,50 @@ export default function AuctionDetailPage() {
     setUserBids((prev) => prev.filter(b => b.id !== bidId));
   };
 
-  const handleNewBid = () => {
-    if (!auction || !newBidAmount || !newBidPrice) return;
+  const handleNewBid = async () => {
+    if (!auction || !address || !newBidAmount || !newBidPrice) return;
 
     const amount = parseFloat(newBidAmount);
     const price = parseFloat(newBidPrice);
 
     if (isNaN(amount) || isNaN(price) || amount <= 0 || price <= 0) {
-      alert('Please enter valid bid amount and price');
+      setBidError('Please enter valid bid amount and price');
       return;
     }
 
-    // In real app, this would call a contract
-    const newBid: AuctionBid = {
-      id: Date.now().toString(),
-      maxPrice: price,
-      amount: amount,
-      amountUsd: null,
-      filledPercent: 0,
-      isUserBid: true,
-    };
+    try {
+      setBidError(null);
+      setIsSubmittingBid(true);
 
-    setUserBids((prev) => [...prev, newBid].sort((a, b) => (b.maxPrice ?? 0) - (a.maxPrice ?? 0)));
+      if (chainId !== auction.chainId && switchChainAsync) {
+        await switchChainAsync({ chainId: auction.chainId });
+      }
 
-    setNewBidAmount('');
-    setNewBidPrice('');
+      const amountWei = parseUnits(newBidAmount, auction.currencyDecimals ?? 18);
+      const priceQ96 = priceToQ96(price);
+
+      const txHash = await writeContractAsync({
+        address: auction.address as `0x${string}`,
+        abi: ccaAuctionAbi,
+        functionName: 'submitBid',
+        args: [priceQ96, amountWei, address, '0x'],
+        value: amountWei,
+      });
+
+      if (publicClient) {
+        await publicClient.waitForTransactionReceipt({ hash: txHash });
+      }
+
+      await fetchUserBids(address);
+      setShowBidForm(false);
+      setNewBidAmount('');
+      setNewBidPrice('');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to submit bid';
+      setBidError(message);
+    } finally {
+      setIsSubmittingBid(false);
+    }
   };
 
   const handleAddBidClick = () => {
@@ -511,7 +562,8 @@ export default function AuctionDetailPage() {
       setShowBidForm(false);
       return;
     }
-    setShowBidForm((prev) => !prev);
+    setBidError(null);
+    setShowBidForm(true);
   };
 
   if (loading) {
@@ -568,9 +620,7 @@ export default function AuctionDetailPage() {
               </svg>
             </button>
             <div className="flex-1 flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center text-2xl">
-                {auction.tokenImage ?? (auction.tokenTicker ? auction.tokenTicker[0] : '🪙')}
-              </div>
+              <TokenAvatar tokenImage={auction.tokenImage} tokenTicker={auction.tokenTicker} />
               <div>
                 <h1 className="text-xl font-bold text-white">{auction.tokenTicker ?? 'Unknown'}</h1>
                 <p className="text-white/60 text-sm">{auction.tokenName ?? 'Unknown token'}</p>
@@ -704,46 +754,6 @@ export default function AuctionDetailPage() {
               <span className="text-white/60 text-sm">{auction.bidders} total</span>
             </div>
 
-            {/* New Bid Form */}
-            {auction.status === 'active' && showBidForm && (
-              <div className="mb-4 p-4 bg-white/10 rounded-lg border border-white/20">
-                <div className="flex gap-3 mb-3">
-                  <div className="flex-1">
-                    <label className="text-white/70 text-xs block mb-1">Amount ({auction.currency ?? '—'})</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={newBidAmount}
-                      onChange={(e) => setNewBidAmount(e.target.value)}
-                      placeholder="0.1"
-                      className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/50 text-sm"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <label className="text-white/70 text-xs block mb-1">Max Price</label>
-                    <input
-                      type="number"
-                      step="0.000001"
-                      value={newBidPrice}
-                      onChange={(e) => setNewBidPrice(e.target.value)}
-                      placeholder="0.00001"
-                      className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/50 text-sm"
-                    />
-                  </div>
-                </div>
-                <button
-                  onClick={handleNewBid}
-                  disabled={!newBidAmount || !newBidPrice}
-                  className="w-full bg-white/30 hover:bg-white/40 disabled:bg-white/10 disabled:cursor-not-allowed text-white font-semibold py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                  </svg>
-                  Place Bid
-                </button>
-              </div>
-            )}
-
             {/* Bids List */}
             <div className="space-y-2">
               {!address ? (
@@ -801,6 +811,70 @@ export default function AuctionDetailPage() {
           </section>
         </main>
       </div>
+      {showBidForm && auction.status === 'active' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-md rounded-2xl bg-[#1b1b24] border border-white/20 p-5 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Place a bid</h3>
+              <button
+                onClick={() => setShowBidForm(false)}
+                className="text-white/70 hover:text-white transition-colors"
+                aria-label="Close bid modal"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-white/70 text-xs block mb-1">Amount ({auction.currency ?? '—'})</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newBidAmount}
+                  onChange={(e) => setNewBidAmount(e.target.value)}
+                  placeholder="0.1"
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/50 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-white/70 text-xs block mb-1">Max Price</label>
+                <input
+                  type="number"
+                  step="0.000001"
+                  value={newBidPrice}
+                  onChange={(e) => setNewBidPrice(e.target.value)}
+                  placeholder="0.00001"
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/50 text-sm"
+                />
+              </div>
+              {bidError && (
+                <div className="text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+                  {bidError}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 flex gap-2">
+              <button
+                onClick={() => setShowBidForm(false)}
+                className="flex-1 bg-white/10 hover:bg-white/20 text-white/80 font-semibold py-2 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleNewBid}
+                disabled={!newBidAmount || !newBidPrice || isSubmittingBid}
+                className="flex-1 bg-white text-purple-900 hover:bg-white/90 disabled:bg-white/20 disabled:text-white/50 disabled:cursor-not-allowed font-semibold py-2 rounded-lg transition-colors"
+              >
+                {isSubmittingBid ? 'Sending...' : 'Send'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <BottomNav />
     </div>
   );

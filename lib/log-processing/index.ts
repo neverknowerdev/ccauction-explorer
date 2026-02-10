@@ -32,4 +32,4 @@ export {
 } from './scan-blocks';
 
 // Auction scanner
-export { scanAuction } from './scan-auction';
+export { scanAuction, upsertAuctionFromInfo } from './scan-auction';

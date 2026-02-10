@@ -12,8 +12,14 @@ if (!connectionString) {
 // Create postgres client
 const client = postgres(connectionString);
 
+// Enable full SQL query logging when DRIZZLE_LOG_QUERIES=true
+const logQueries = process.env.DRIZZLE_LOG_QUERIES === 'true';
+
 // Create drizzle instance with schema
-export const db = drizzle(client, { schema });
+export const db = drizzle(client, {
+  schema,
+  logger: logQueries,
+});
 
 // Re-export schema for convenience
 export * from './schema';

@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
-import { listAuctions, type AuctionTokenInfoJson } from '@/lib/db/queries';
+import {
+  getAuctionStats,
+  listPlannedAuctions,
+  listActiveAndEndedAuctions,
+  type AuctionTokenInfoJson,
+} from '@/lib/db/queries';
 import type { AuctionListItem } from '@/lib/auctions/types';
 
 function toNumber(value: unknown): number | null {
@@ -12,10 +17,18 @@ function toNumber(value: unknown): number | null {
   return null;
 }
 
-export async function GET() {
-  const rows = await listAuctions();
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const aboveThresholdParam = searchParams.get('above_threshold');
+  const aboveThresholdOnly = aboveThresholdParam !== 'all' && aboveThresholdParam !== '0' && aboveThresholdParam !== 'false';
 
-  const auctions: AuctionListItem[] = rows.map((row) => {
+  const [plannedRows, activeAndEndedRows, stats] = await Promise.all([
+    listPlannedAuctions(10),
+    listActiveAndEndedAuctions(10, aboveThresholdOnly),
+    getAuctionStats(true),
+  ]);
+
+  const mapRowToAuction = (row: (typeof plannedRows)[number]): AuctionListItem => {
     const token = (row.tokenInfo ?? null) as AuctionTokenInfoJson | null;
     const currentPrice = toNumber(row.currentClearingPrice) ?? toNumber(row.floorPrice);
 
@@ -35,7 +48,21 @@ export async function GET() {
       bidders: Number(row.bidsCount ?? 0),
       currency: row.currencyName ?? row.currency ?? null,
     };
-  });
+  };
 
-  return NextResponse.json({ auctions });
+  const plannedAuctions: AuctionListItem[] = plannedRows.map(mapRowToAuction);
+  const activeAndEndedAuctions: AuctionListItem[] = activeAndEndedRows.map(mapRowToAuction);
+  const activeAuctions: AuctionListItem[] = activeAndEndedAuctions.filter((a) => a.status === 'active');
+  const endedAuctions: AuctionListItem[] = activeAndEndedAuctions.filter(
+    (a) => a.status === 'ended' || a.status === 'claimable' || a.status === 'graduated'
+  );
+
+  console.log('stats', stats);
+
+  return NextResponse.json({
+    plannedAuctions,
+    activeAuctions,
+    endedAuctions,
+    stats,
+  });
 }

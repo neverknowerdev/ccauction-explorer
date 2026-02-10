@@ -99,6 +99,22 @@ export const erc20Abi = [
   },
 ] as const;
 
+// CCA Auction ABI (minimal for submitting bids)
+export const ccaAuctionAbi = [
+  {
+    type: 'function',
+    name: 'submitBid',
+    inputs: [
+      { name: 'maxPrice', type: 'uint256', internalType: 'uint256' },
+      { name: 'amount', type: 'uint128', internalType: 'uint128' },
+      { name: 'owner', type: 'address', internalType: 'address' },
+      { name: 'hookData', type: 'bytes', internalType: 'bytes' },
+    ],
+    outputs: [{ name: 'bidId', type: 'uint256', internalType: 'uint256' }],
+    stateMutability: 'payable',
+  },
+] as const;
+
 // Permit2 ABI for token approvals
 export const permit2Abi = [
   {

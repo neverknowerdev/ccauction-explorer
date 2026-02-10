@@ -15,6 +15,7 @@ import {
   eventTopics,
 } from './schema';
 import type { EventTopic } from './schema';
+import type { AuctionStats, AuctionStatus } from '@/lib/auctions/types';
 
 /**
  * Get the highest block number in processed_logs for a chain.
@@ -205,13 +206,30 @@ export async function getAuctionNotFoundAddresses(): Promise<
 // AUCTIONS (API)
 // =============================================================================
 
-export async function listAuctions(limit = 50) {
-  return db
+const effectiveAuctionStatusSql = sql<AuctionStatus>`(
+  case
+    when ${auctions.startTime} is null or ${auctions.endTime} is null then ${auctions.status}::text
+    when ${auctions.startTime} > current_timestamp then ${auctions.status}::text
+    when ${auctions.startTime} <= current_timestamp and current_timestamp < ${auctions.endTime} then 'active'
+    when ${auctions.endTime} <= current_timestamp then
+      case
+        when coalesce(${auctions.targetAmount}, 0) = 0
+          or coalesce(${auctions.collectedAmount}, 0) > coalesce(${auctions.targetAmount}, 0)
+          then 'graduated'
+        else 'ended'
+      end
+    else ${auctions.status}::text
+  end
+)`;
+
+export async function listAuctions(limit = 50, aboveThresholdOnly = true) {
+  const query = db
     .select({
       id: auctions.id,
       chainId: auctions.chainId,
       chainName: chains.name,
-      status: auctions.status,
+      address: auctions.address,
+      status: effectiveAuctionStatusSql,
       startTime: auctions.startTime,
       endTime: auctions.endTime,
       tokenInfo: auctions.tokenInfo,
@@ -228,8 +246,81 @@ export async function listAuctions(limit = 50) {
     })
     .from(auctions)
     .leftJoin(chains, eq(auctions.chainId, chains.id))
-    .orderBy(desc(auctions.updatedAt))
+    .orderBy(desc(auctions.startTime))
     .limit(limit);
+
+  if (aboveThresholdOnly) {
+    return query.where(eq(auctions.aboveTestThreshold, true));
+  }
+  return query;
+}
+
+function buildAuctionListBaseQuery(limit: number) {
+  return db
+    .select({
+      id: auctions.id,
+      chainId: auctions.chainId,
+      chainName: chains.name,
+      address: auctions.address,
+      status: effectiveAuctionStatusSql,
+      startTime: auctions.startTime,
+      endTime: auctions.endTime,
+      tokenInfo: auctions.tokenInfo,
+      links: auctions.links,
+      currency: auctions.currency,
+      currencyName: auctions.currencyName,
+      currentClearingPrice: auctions.currentClearingPrice,
+      collectedAmount: auctions.collectedAmount,
+      targetAmount: auctions.targetAmount,
+      floorPrice: auctions.floorPrice,
+      extraFundsDestination: auctions.extraFundsDestination,
+      supplyInfo: auctions.supplyInfo,
+      bidsCount: sql<number>`(select count(*) from ${bids} where ${bids.auctionId} = ${auctions.id})`,
+    })
+    .from(auctions)
+    .leftJoin(chains, eq(auctions.chainId, chains.id))
+    .orderBy(desc(auctions.startTime))
+    .limit(limit);
+}
+
+export async function listPlannedAuctions(limit = 10) {
+  const query = buildAuctionListBaseQuery(limit);
+  // Include both explicit planned and just-created upcoming auctions.
+  return query.where(sql`${effectiveAuctionStatusSql} in ('planned', 'created')`);
+}
+
+export async function listActiveAndEndedAuctions(limit = 10, aboveThresholdOnly = true) {
+  const query = buildAuctionListBaseQuery(limit);
+  const statusFilter = sql`${effectiveAuctionStatusSql} in ('active', 'ended', 'graduated', 'claimable')`;
+
+  if (aboveThresholdOnly) {
+    return query.where(and(eq(auctions.aboveTestThreshold, true), statusFilter));
+  }
+  return query.where(statusFilter);
+}
+
+export async function getAuctionStats(onlyMainnet: boolean): Promise<AuctionStats> {
+  const baseQuery = db
+    .select({
+      totalIncludingTest: sql<number>`count(*)`,
+      total: sql<number>`count(*) filter (where ${auctions.aboveTestThreshold} = true)`,
+      active: sql<number>`count(*) filter (where ${auctions.aboveTestThreshold} = true and ${auctions.startTime} is not null and ${auctions.endTime} is not null and ${auctions.startTime} <= current_timestamp and ${auctions.endTime} > current_timestamp)`,
+      ended: sql<number>`count(*) filter (where ${auctions.aboveTestThreshold} = true and ${auctions.endTime} is not null and ${auctions.endTime} <= current_timestamp)`,
+    })
+    .from(auctions)
+    .innerJoin(chains, eq(auctions.chainId, chains.id));
+
+  const result = await (onlyMainnet
+    ? baseQuery.where(eq(chains.isTestnet, false)).limit(1)
+    : baseQuery.limit(1));
+
+  const row = result[0];
+  return {
+    total: Number(row?.total ?? 0),
+    totalIncludingTest: Number(row?.totalIncludingTest ?? 0),
+    active: Number(row?.active ?? 0),
+    ended: Number(row?.ended ?? 0),
+  };
 }
 
 export async function getAuctionById(auctionId: number) {
@@ -238,7 +329,8 @@ export async function getAuctionById(auctionId: number) {
       id: auctions.id,
       chainId: auctions.chainId,
       chainName: chains.name,
-      status: auctions.status,
+      address: auctions.address,
+      status: effectiveAuctionStatusSql,
       startTime: auctions.startTime,
       endTime: auctions.endTime,
       tokenInfo: auctions.tokenInfo,

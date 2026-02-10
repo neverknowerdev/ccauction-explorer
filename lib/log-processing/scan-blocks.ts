@@ -141,6 +141,7 @@ export async function scanBlocks(options: ScanBlocksOptions): Promise<ScanResult
         source: 'scanScript',
         verbose,
       });
+      console.log('ScanBlocks: Processed log', log.blockNumber, log.logIndex, result.status);
       if (result.status === 'processed') totalProcessed++;
       else if (result.status === 'skipped') totalSkipped++;
       else totalErrors++;
