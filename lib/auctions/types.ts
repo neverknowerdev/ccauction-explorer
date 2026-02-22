@@ -5,12 +5,17 @@ export type AuctionStats = {
   totalIncludingTest: number;
   active: number;
   ended: number;
+  graduated: number;
+  failed: number;
+  totalBids: number;
+  totalRaised: string;
 };
 
 export type AuctionListItem = {
   id: number;
   chainId: number;
   chainName: string | null;
+  isTestnet?: boolean | null;
   tokenTicker: string | null;
   tokenName: string | null;
   tokenImage: string | null;

@@ -242,6 +242,7 @@ export async function listAuctions(limit = 50, aboveThresholdOnly = true) {
       id: auctions.id,
       chainId: auctions.chainId,
       chainName: chains.name,
+      isTestnet: chains.isTestnet,
       address: auctions.address,
       status: effectiveAuctionStatusSql,
       startTime: auctions.startTime,
@@ -275,6 +276,7 @@ function buildAuctionListBaseQuery(limit: number) {
       id: auctions.id,
       chainId: auctions.chainId,
       chainName: chains.name,
+      isTestnet: chains.isTestnet,
       address: auctions.address,
       status: effectiveAuctionStatusSql,
       startTime: auctions.startTime,
@@ -297,9 +299,19 @@ function buildAuctionListBaseQuery(limit: number) {
     .limit(limit);
 }
 
-export async function listPlannedAuctions(limit = 10) {
+export async function listPlannedAuctions(limit = 10, excludeTestnets = false) {
   const query = buildAuctionListBaseQuery(limit);
   // Show only auctions that reached planned state (TokensReceived fired).
+  if (excludeTestnets) {
+    return query.where(
+      and(
+        sql`${effectiveAuctionStatusSql} = 'planned'`,
+        isNotNull(auctions.startTime),
+        isNotNull(auctions.endTime),
+        eq(chains.isTestnet, false)
+      )
+    );
+  }
   return query.where(
     and(
       sql`${effectiveAuctionStatusSql} = 'planned'`,
@@ -309,12 +321,22 @@ export async function listPlannedAuctions(limit = 10) {
   );
 }
 
-export async function listActiveAndEndedAuctions(limit = 10, aboveThresholdOnly = true) {
+export async function listActiveAndEndedAuctions(
+  limit = 10,
+  aboveThresholdOnly = true,
+  excludeTestnets = false
+) {
   const query = buildAuctionListBaseQuery(limit);
   const statusFilter = sql`${effectiveAuctionStatusSql} in ('active', 'ended', 'graduated', 'claimable')`;
 
   if (aboveThresholdOnly) {
+    if (excludeTestnets) {
+      return query.where(and(eq(auctions.aboveTestThreshold, true), statusFilter, eq(chains.isTestnet, false)));
+    }
     return query.where(and(eq(auctions.aboveTestThreshold, true), statusFilter));
+  }
+  if (excludeTestnets) {
+    return query.where(and(statusFilter, eq(chains.isTestnet, false)));
   }
   return query.where(statusFilter);
 }
@@ -326,6 +348,10 @@ export async function getAuctionStats(onlyMainnet: boolean): Promise<AuctionStat
       total: sql<number>`count(*) filter (where ${auctions.aboveTestThreshold} = true)`,
       active: sql<number>`count(*) filter (where ${auctions.aboveTestThreshold} = true and ${auctions.startTime} is not null and ${auctions.endTime} is not null and ${auctions.startTime} <= current_timestamp and ${auctions.endTime} > current_timestamp)`,
       ended: sql<number>`count(*) filter (where ${auctions.aboveTestThreshold} = true and ${auctions.endTime} is not null and ${auctions.endTime} <= current_timestamp)`,
+      graduated: sql<number>`count(*) filter (where ${auctions.aboveTestThreshold} = true and ${auctions.endTime} is not null and ${auctions.endTime} <= current_timestamp and (coalesce(${auctions.targetAmount}, 0) = 0 or coalesce(${auctions.collectedAmount}, 0) > coalesce(${auctions.targetAmount}, 0)))`,
+      failed: sql<number>`count(*) filter (where ${auctions.aboveTestThreshold} = true and ${auctions.endTime} is not null and ${auctions.endTime} <= current_timestamp and coalesce(${auctions.targetAmount}, 0) > 0 and coalesce(${auctions.collectedAmount}, 0) <= coalesce(${auctions.targetAmount}, 0))`,
+      totalBids: sql<number>`(select count(*) from ${bids})`,
+      totalRaised: sql<string>`coalesce(sum(${auctions.collectedAmount}) filter (where ${auctions.aboveTestThreshold} = true), 0)`,
     })
     .from(auctions)
     .innerJoin(chains, eq(auctions.chainId, chains.id));
@@ -340,6 +366,10 @@ export async function getAuctionStats(onlyMainnet: boolean): Promise<AuctionStat
     totalIncludingTest: Number(row?.totalIncludingTest ?? 0),
     active: Number(row?.active ?? 0),
     ended: Number(row?.ended ?? 0),
+    graduated: Number(row?.graduated ?? 0),
+    failed: Number(row?.failed ?? 0),
+    totalBids: Number(row?.totalBids ?? 0),
+    totalRaised: String(row?.totalRaised ?? '0'),
   };
 }
 
@@ -349,6 +379,7 @@ export async function getAuctionById(auctionId: number) {
       id: auctions.id,
       chainId: auctions.chainId,
       chainName: chains.name,
+      isTestnet: chains.isTestnet,
       address: auctions.address,
       status: effectiveAuctionStatusSql,
       startTime: auctions.startTime,

@@ -289,9 +289,11 @@ function RaisedProgress({ raised, target, currency }: {
   target: number | null;
   currency: string;
 }) {
+  const [showNoTargetInfo, setShowNoTargetInfo] = useState(false);
   const safeRaised = raised ?? 0;
   const safeTarget = target ?? 0;
-  const percent = safeTarget > 0 ? Math.min(100, (safeRaised / safeTarget) * 100) : 0;
+  const hasNoTarget = safeTarget <= 0;
+  const percent = hasNoTarget ? 100 : Math.min(100, (safeRaised / safeTarget) * 100);
   const isOverfunded = safeTarget > 0 && safeRaised > safeTarget;
 
   return (
@@ -305,13 +307,37 @@ function RaisedProgress({ raised, target, currency }: {
           </div>
         </div>
         <div className="text-right">
-          <span className="text-white/70 text-sm">Target</span>
+          <div className="flex items-center justify-end gap-1">
+            <span className="text-white/70 text-sm">Target</span>
+            {hasNoTarget && (
+              <button
+                type="button"
+                onClick={() => setShowNoTargetInfo((prev) => !prev)}
+                aria-label="Explain no target"
+                className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-white/40 text-white/80 hover:bg-white/10 transition-colors"
+              >
+                i
+              </button>
+            )}
+          </div>
           <div className="flex items-baseline gap-2 justify-end">
-            <span className="text-lg font-medium text-white/70">{formatAmount(safeTarget, 2)}</span>
-            <span className="text-white/50">{currency}</span>
+            {hasNoTarget ? (
+              <span className="text-lg font-medium text-white/70">-</span>
+            ) : (
+              <>
+                <span className="text-lg font-medium text-white/70">{formatAmount(safeTarget, 2)}</span>
+                <span className="text-white/50">{currency}</span>
+              </>
+            )}
           </div>
         </div>
       </div>
+
+      {hasNoTarget && showNoTargetInfo && (
+        <div className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs text-white/80">
+          This auction has no raise cap, so progress is displayed as full by default.
+        </div>
+      )}
 
       <div className="relative">
         <div className="h-6 bg-white/10 rounded-full overflow-hidden">
