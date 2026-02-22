@@ -15,16 +15,23 @@ jobs:
         node-version: lts/*
     - name: Install dependencies
       run: yarn install
+    - name: Build Next.js App
+      run: yarn build
+      env:
+        # Build needs DB connection string for static generation (even if dummy)
+        # and VAPID keys for compile-time checks if any
+        DB_CONNECTION_STRING: postgres://user:password@localhost:5432/test_db
+        NEXT_PUBLIC_VAPID_PUBLIC_KEY: BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjS54caBK28Zo23CSVjaQ38JcWs9B0_pgauRw
+        VAPID_PRIVATE_KEY: private_key_mock
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
     - name: Run Playwright tests
       run: npx playwright test
       env:
-        # CI environment variables
+        # Runtime env
         DB_CONNECTION_STRING: postgres://user:password@localhost:5432/test_db
         NEXT_PUBLIC_VAPID_PUBLIC_KEY: BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjS54caBK28Zo23CSVjaQ38JcWs9B0_pgauRw
         VAPID_PRIVATE_KEY: private_key_mock
-        # We need a database service for the app to start properly
     services:
       postgres:
         image: postgres:15
