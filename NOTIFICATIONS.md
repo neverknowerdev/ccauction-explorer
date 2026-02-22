@@ -2,11 +2,11 @@
 
 ## Overview
 This feature allows users to subscribe to auction alerts via multiple channels:
-- Browser Web Push
-- Farcaster Mini App
-- Email (SMTP)
-- Telegram (Bot)
-- BaseApp (Placeholder)
+- **Browser Web Push**: Using standardized VAPID protocol.
+- **Farcaster Mini App**: Direct notifications via Farcaster client.
+- **Base Mini App**: Specific integration for Base ecosystem apps.
+- **Email (SMTP)**: Standard email delivery.
+- **Telegram (Bot)**: Alerts via Telegram bot.
 
 ## Setup
 
@@ -39,8 +39,7 @@ Run migrations to create notification tables:
 - Enable channels and set filters (Min Raised Amount, FDV).
 - When an auction matches, notifications are dispatched asynchronously via `notificationService.processAuction`.
 
-## Testing
-- Use `/api/notifications/send-test` to trigger a manual test.
-  ```bash
-  curl -X POST http://localhost:3000/api/notifications/send-test -d '{"auctionId": "1", "triggerType": "created"}' -H "Content-Type: application/json"
-  ```
+## Implementation Details
+- **BaseApp**: Uses `baseapp_notification_url` and `baseapp_token` stored in `user_notification_settings`. Sending logic defaults to Farcaster standard or custom URL if provided.
+- **Service Worker**: `public/sw.js` handles push events and posts messages to the client for In-App Toasts.
+- **Deduplication**: Notifications are tracked in `sent_notifications` to preventing duplicate alerts for the same trigger.

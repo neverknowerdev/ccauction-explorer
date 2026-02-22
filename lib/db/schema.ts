@@ -111,9 +111,10 @@ export const processedLogs = pgTable('processed_logs', {
   index('idx_processed_logs_chain_block').on(table.chainId, table.blockNumber),
 ]);
 
-// Users table (minimal ref for bids.user_id; full def in migrations/003)
+// Users table (Updated to include primaryWallet)
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
+  primaryWallet: text('primary_wallet').notNull().unique(),
 });
 
 // Auctions table (amount and price fields = human-readable decimals)
@@ -209,6 +210,48 @@ export const logScans = pgTable('log_scans', {
   uniqueIndex('idx_log_scans_chain_id').on(table.chainId),
 ]);
 
+// User Notification Settings
+export const userNotificationSettings = pgTable('user_notification_settings', {
+  userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  email: text('email'),
+  emailVerified: boolean('email_verified').notNull().default(false),
+  telegramChatId: text('telegram_chat_id'),
+  webPushSubscription: jsonb('web_push_subscription'),
+  farcasterToken: text('farcaster_token'),
+  farcasterNotificationUrl: text('farcaster_notification_url'),
+  baseappToken: text('baseapp_token'),
+  baseappNotificationUrl: text('baseapp_notification_url'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Notification Preferences
+export const notificationPreferences = pgTable('notification_preferences', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  minRaisedAmount: numeric('min_raised_amount', { precision: 30, scale: 18 }),
+  minFdv: numeric('min_fdv', { precision: 30, scale: 18 }),
+  maxFdv: numeric('max_fdv', { precision: 30, scale: 18 }),
+  chainIds: integer('chain_ids').array(),
+  enabledChannels: jsonb('enabled_channels').notNull().default([]),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index('idx_notification_preferences_user_id').on(table.userId),
+]);
+
+// Sent Notifications
+export const sentNotifications = pgTable('sent_notifications', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  auctionId: bigint('auction_id', { mode: 'number' }).notNull().references(() => auctions.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  triggerType: text('trigger_type').notNull(),
+  channel: text('channel').notNull(),
+  sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  unique('sent_notifications_unique_constraint').on(table.auctionId, table.userId, table.triggerType, table.channel),
+  index('idx_sent_notifications_auction_user').on(table.auctionId, table.userId),
+]);
+
 // Type exports
 export type Chain = typeof chains.$inferSelect;
 export type NewChain = typeof chains.$inferInsert;
@@ -239,3 +282,12 @@ export type NewProcessedLogError = typeof processedLogsErrors.$inferInsert;
 
 export type LogScan = typeof logScans.$inferSelect;
 export type NewLogScan = typeof logScans.$inferInsert;
+
+export type UserNotificationSettings = typeof userNotificationSettings.$inferSelect;
+export type NewUserNotificationSettings = typeof userNotificationSettings.$inferInsert;
+
+export type NotificationPreference = typeof notificationPreferences.$inferSelect;
+export type NewNotificationPreference = typeof notificationPreferences.$inferInsert;
+
+export type SentNotification = typeof sentNotifications.$inferSelect;
+export type NewSentNotification = typeof sentNotifications.$inferInsert;

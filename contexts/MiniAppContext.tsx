@@ -11,6 +11,7 @@ interface MiniAppContextType {
   fid: number | null;
   profilePicture: string | null;
   isMiniApp: boolean;
+  requestFarcasterNotifications?: () => Promise<boolean>;
 }
 
 const MiniAppContext = createContext<MiniAppContextType>({
@@ -83,8 +84,53 @@ function MiniAppContextProvider({ children }: { children: ReactNode }) {
     initializeMiniApp();
   }, []);
 
+  const requestFarcasterNotifications = async (): Promise<boolean> => {
+    if (!isMiniApp) return false;
+    try {
+      const actions = sdk.actions as any;
+
+      if (typeof actions.requestNotifications !== 'function') {
+         console.warn('requestNotifications not available in SDK actions');
+         return false;
+      }
+
+      const result = await actions.requestNotifications();
+      if (result && result.token && result.url) {
+         if (!address) {
+             console.error('Wallet not connected, cannot save token');
+             return false;
+         }
+
+         await fetch('/api/notifications/register', {
+           method: 'POST',
+           headers: {
+             'Content-Type': 'application/json',
+             'x-wallet-address': address
+           },
+           body: JSON.stringify({
+             farcasterToken: result.token,
+             farcasterNotificationUrl: result.url
+           })
+         });
+         return true;
+      }
+      return false;
+    } catch (e) {
+      console.error('Failed to request notifications', e);
+      return false;
+    }
+  };
+
   return (
-    <MiniAppContext.Provider value={{ username, walletAddress: address || null, isReady, fid, profilePicture, isMiniApp }}>
+    <MiniAppContext.Provider value={{
+        username,
+        walletAddress: address || null,
+        isReady,
+        fid,
+        profilePicture,
+        isMiniApp,
+        requestFarcasterNotifications
+    }}>
       {children}
     </MiniAppContext.Provider>
   );
