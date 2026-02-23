@@ -11,6 +11,7 @@ The detector operates on the principle of **verification before analysis**:
 2.  **Verification**: We compile the provided source code and ensure it exactly matches the deployed bytecode. If they mismatch, the contract is flagged (source cannot be trusted).
 3.  **Analysis**: We perform static analysis on the AST to identify *how* `delegatecall` is used.
 4.  **Heuristics**: Distinguishes between "safe" usage (libraries) and "proxy/backdoor" usage.
+5.  **Implementation Extraction**: If a proxy is detected, it attempts to extract the Implementation Address or Storage Slot.
 
 ## Algorithm
 
@@ -34,6 +35,12 @@ The detector operates on the principle of **verification before analysis**:
     -   **Safe**: Literal address, Constant/Immutable variable, Library call.
     -   **Unsafe**: Dynamic target (Storage, Input, Calculation).
 
+### 4. Implementation Extraction
+If detected as a proxy, the tool scans for:
+-   **EIP-1967 Slot**: Looks for `0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc` usage (Literal or Constant).
+-   **Minimal Proxy (EIP-1167)**: Detects standard bytecode pattern and extracts the embedded address.
+-   **Generic Storage Slot**: Detects `sload(CONST)` calls in assembly and returns the constant value as the likely storage slot.
+
 ## Usage
 
 ```typescript
@@ -46,6 +53,10 @@ const result = detectProxy(source, bytecode);
 
 if (result.isProxy) {
   console.log('Proxy Detected:', result.reason);
+  if (result.implementation) {
+      console.log('Implementation:', result.implementation);
+      // { type: 'storageSlot', value: '0x...' } or { type: 'address', value: '0x...' }
+  }
 } else {
   console.log('Contract is Safe');
 }
