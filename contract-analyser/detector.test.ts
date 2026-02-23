@@ -6,7 +6,6 @@ import { compile } from './compiler';
 
 const contractsDir = path.join(__dirname, 'contracts');
 
-// Define expected outcomes
 const expectedResults: Record<string, boolean> = {
   'SimpleStorage.sol': false,
   'LibraryUser.sol': false,
@@ -19,14 +18,14 @@ const expectedResults: Record<string, boolean> = {
   'StorageSlotBackdoor.sol': true,
   'FallbackProxy.sol': true,
   'ObfuscatedAssembly.sol': true,
+
+  'Bypass.sol': true, // Should be true (unsafe) but current implementation fails
 };
 
-// Define expected implementation details
+// ... implementation map ...
 const expectedImplementations: Record<string, any> = {
   'EIP1967Proxy.sol': { type: 'storageSlot', value: '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc' },
   'StorageSlotBackdoor.sol': { type: 'storageSlot', value: '0x1122334455667788990011223344556677889900112233445566778899001122' },
-  // MinimalProxy.sol uses high-level storage access which our current heuristic doesn't resolve to a slot.
-  // So we skip implementation check or expect unknown.
 };
 
 describe('Proxy Detector', () => {
@@ -71,10 +70,7 @@ describe('Proxy Detector', () => {
     const sourcePath = path.join(contractsDir, file);
     const source = fs.readFileSync(sourcePath, 'utf8');
     const { bytecode } = compile(source, file);
-
-    // Tamper bytecode: Change PUSH1 0x80 (6080) to PUSH1 0x81 (6081)
     const tamperedBytecode = bytecode.replace('6080', '6081');
-
     const result = detectProxy(source, tamperedBytecode, file);
     expect(result.isProxy).toBe(false);
   });
@@ -84,12 +80,8 @@ describe('Proxy Detector', () => {
     const sourcePath = path.join(contractsDir, file);
     const source = fs.readFileSync(sourcePath, 'utf8');
     const { bytecode } = compile(source, file);
-
-    // Tamper bytecode safely (preserve DELEGATECALL, break verification)
     const tamperedBytecode = bytecode.replace('6080', '6081');
-
     const result = detectProxy(source, tamperedBytecode, file);
-
     expect(result.isProxy).toBe(true);
     expect(result.reason).toContain('Bytecode mismatch');
   });
@@ -97,7 +89,6 @@ describe('Proxy Detector', () => {
   it('should ignore DELEGATECALL in PUSH data (SEVM check)', () => {
     const trickyBytecode = '0x60f45000';
     const dummySource = 'contract Test {}';
-
     const result = detectProxy(dummySource, trickyBytecode);
     expect(result.isProxy).toBe(false);
   });

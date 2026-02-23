@@ -14,6 +14,7 @@ interface AnalysisResult {
 }
 
 export function detectProxy(source: string, originalBytecode: string, fileName: string = 'Contract.sol'): AnalysisResult {
+
   const hasDelegate = hasDelegateCall(originalBytecode);
   if (!hasDelegate) return { isProxy: false, reason: 'No DELEGATECALL opcode found in bytecode.' };
 
@@ -47,6 +48,7 @@ export function detectProxy(source: string, originalBytecode: string, fileName: 
 }
 
 // ... AST Traversal ...
+
 interface AstNode { nodeType: string; [key: string]: any; }
 
 function findDelegateCalls(ast: AstNode): AstNode[] {
@@ -109,10 +111,26 @@ function analyzeDelegateCall(node: AstNode, rootAst: AstNode): { isProxy: boolea
 
 function isSafeExpression(node: AstNode, rootAst: AstNode): boolean {
     if (!node) return false;
+
+    // 1. Literal: Always safe (address(0x...))
     if (node.nodeType === 'Literal') return true;
-    if (node.nodeType === 'FunctionCall' && (node.kind === 'typeConversion' || node.kind === 'functionCall')) {
-        if (node.arguments && node.arguments.length > 0) return isSafeExpression(node.arguments[0], rootAst);
+
+    // 2. FunctionCall handling:
+    // Only allow explicit 'typeConversion' (e.g. address(foo)).
+    // Reject generic 'functionCall' because a function can return unsafe dynamic values
+    // even if its arguments are safe (e.g. the Trojan Function exploit).
+    if (node.nodeType === 'FunctionCall') {
+        if (node.kind === 'typeConversion') {
+            if (node.arguments && node.arguments.length > 0) {
+                return isSafeExpression(node.arguments[0], rootAst);
+            }
+        }
+        // Generic 'functionCall' is UNsafe unless we analyze the function body (complex).
+        // By default, reject it.
+        return false;
     }
+
+    // 3. Identifier: variable or constant
     if (node.nodeType === 'Identifier') {
         const referencedDeclarationId = node.referencedDeclaration;
         if (referencedDeclarationId) {
@@ -123,11 +141,19 @@ function isSafeExpression(node: AstNode, rootAst: AstNode): boolean {
             }
         }
     }
-    if (node.nodeType === 'MemberAccess') return isSafeExpression(node.expression, rootAst);
+
+    // 4. MemberAccess
+    if (node.nodeType === 'MemberAccess') {
+        return isSafeExpression(node.expression, rootAst);
+    }
+
     return false;
 }
 
-function isSafeYulExpression(node: any): boolean { return node.nodeType === 'YulLiteral'; }
+function isSafeYulExpression(node: any): boolean {
+    if (node.nodeType === 'YulLiteral') return true;
+    return false;
+}
 
 function findDeclaration(ast: AstNode, id: number): AstNode | null {
     let result: AstNode | null = null;
@@ -145,8 +171,7 @@ function findDeclaration(ast: AstNode, id: number): AstNode | null {
     return result;
 }
 
-// --- Implementation Extraction ---
-
+// ... Implementation Extraction (Same as before) ...
 function extractImplementation(node: AstNode, rootAst: AstNode, originalBytecode: string, source: string): ImplementationInfo {
     const eip1967Slot = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
 
@@ -158,7 +183,6 @@ function extractImplementation(node: AstNode, rootAst: AstNode, originalBytecode
     const slots = findSloadConstants(rootAst, source);
     const normalizedSlots = slots.map(s => {
         let clean = s.toLowerCase();
-        // If it's a decimal string, convert to hex
         if (/^\d+$/.test(clean)) {
              try { clean = '0x' + BigInt(clean).toString(16); } catch(e) {}
         }
@@ -196,10 +220,6 @@ function findSloadConstants(ast: AstNode, source: string): string[] {
                     }
                 } else if (arg.nodeType === 'YulIdentifier') {
                     const name = arg.name;
-                    // Improved regex: handle optional 'internal' and type
-                    // "bytes32 constant X = ..." or "bytes32 internal constant X = ..."
-                    // Also type might differ.
-                    // Just look for "constant NAME = VALUE"
                     const regex = new RegExp(`constant\\s+${name}\\s*=\\s*(0x[a-fA-F0-9]+|\\d+)`);
                     const match = source.match(regex);
                     if (match && match[1]) {
