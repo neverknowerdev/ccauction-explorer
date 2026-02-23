@@ -1,4 +1,5 @@
 import { compile, stripMetadata } from './compiler';
+import { hasDelegateCall } from './bytecode-scanner';
 
 interface AnalysisResult {
   isProxy: boolean;
@@ -7,17 +8,30 @@ interface AnalysisResult {
 }
 
 export function detectProxy(source: string, originalBytecode: string, fileName: string = 'Contract.sol'): AnalysisResult {
-  // 1. Compile source
+
+  // 1. Bytecode Pre-Scan (Fast Path)
+  const hasDelegate = hasDelegateCall(originalBytecode);
+
+  if (!hasDelegate) {
+    return { isProxy: false, reason: 'No DELEGATECALL opcode found in bytecode.' };
+  }
+
+  // 2. Compile Source
   let compilationResult;
   try {
     compilationResult = compile(source, fileName);
   } catch (e: any) {
-    return { isProxy: false, reason: `Compilation failed: ${e.message}` };
+    // If we can't compile, we can't verify source.
+    // If bytecode has delegatecall, but we can't verify source, it's safer to flag or warn.
+    // But per requirements "If no source code - we should fail the check".
+    // "So we have access to source-code".
+    // If compilation fails, source is likely invalid.
+    return { isProxy: true, reason: `Compilation failed: ${e.message}` };
   }
 
   const { bytecode: compiledBytecode, ast } = compilationResult;
 
-  // 2. Verify Bytecode
+  // 3. Verify Bytecode
   const strippedOriginal = stripMetadata(originalBytecode);
   const strippedCompiled = stripMetadata(compiledBytecode);
 
@@ -25,18 +39,27 @@ export function detectProxy(source: string, originalBytecode: string, fileName: 
     return { isProxy: true, reason: 'Bytecode mismatch: The provided source code does not match the bytecode.' };
   }
 
-  // 3. AST Analysis
+  // 4. AST Analysis
   const delegateCalls = findDelegateCalls(ast);
 
-  // 4. Analyze each delegate call
+  if (delegateCalls.length === 0) {
+      // Bytecode has delegatecall, but AST doesn't show it.
+      // This implies hidden or obfuscated delegatecall (e.g. unchecked assembly block that parser missed, or mismatch).
+      // Since we verified bytecode matches source, it means our AST parser missed it.
+      // Or it's in a standard library part we didn't traverse?
+      // We should be conservative.
+      return { isProxy: true, reason: 'DELEGATECALL found in bytecode but not detected in AST (Potential obfuscation).' };
+  }
+
+  // 5. Analyze each delegate call
   for (const call of delegateCalls) {
-    const analysis = analyzeDelegateCall(call, ast); // Pass root AST
+    const analysis = analyzeDelegateCall(call, ast);
     if (analysis.isProxy) {
       return { isProxy: true, reason: analysis.reason, details: call };
     }
   }
 
-  return { isProxy: false, reason: 'No proxy patterns detected.' };
+  return { isProxy: false, reason: 'No unsafe proxy patterns detected.' };
 }
 
 // --- AST Traversal ---
@@ -55,6 +78,7 @@ function findDelegateCalls(ast: AstNode): AstNode[] {
     // High-level delegatecall: address(t).delegatecall(data)
     if (node.nodeType === 'FunctionCall') {
       if (node.kind === 'functionCall' &&
+          node.expression &&
           node.expression.nodeType === 'MemberAccess' &&
           node.expression.memberName === 'delegatecall') {
         calls.push(node);
@@ -63,6 +87,7 @@ function findDelegateCalls(ast: AstNode): AstNode[] {
 
     // Low-level assembly delegatecall
     if (node.nodeType === 'InlineAssembly') {
+      // Yul AST usually in `AST` or `externalReferences`
       if (node.AST) {
          visitYul(node.AST, calls);
       }
@@ -86,7 +111,6 @@ function findDelegateCalls(ast: AstNode): AstNode[] {
       // YulFunctionCall: delegatecall(...)
       if (node.nodeType === 'YulFunctionCall') {
           if (node.functionName && node.functionName.name === 'delegatecall') {
-              // Add a marker to identify Yul call
               calls.push({ nodeType: 'YulDelegateCall', ...node });
           }
       }
@@ -111,13 +135,9 @@ function findDelegateCalls(ast: AstNode): AstNode[] {
 function analyzeDelegateCall(node: AstNode, rootAst: AstNode): { isProxy: boolean, reason?: string } {
   // Case 1: High-level Solidity delegatecall
   if (node.nodeType === 'FunctionCall') {
-    // Expression is `address(target).delegatecall`
-    // The `expression` is a `MemberAccess` (delegatecall)
-    // The `expression.expression` is the target (address(target) or target).
     const expression = node.expression;
     const targetExpression = expression.expression;
 
-    // Check if targetExpression is safe
     if (isSafeExpression(targetExpression, rootAst)) {
         return { isProxy: false };
     } else {
@@ -127,8 +147,7 @@ function analyzeDelegateCall(node: AstNode, rootAst: AstNode): { isProxy: boolea
 
   // Case 2: Yul/Assembly delegatecall
   if (node.nodeType === 'YulDelegateCall') {
-      // Arguments: gas, target, in, insize, out, outsize
-      // Target is 2nd argument (index 1)
+      // Arguments: gas, target, ...
       const args = node.arguments;
       if (args && args.length >= 2) {
           const target = args[1];
@@ -151,7 +170,6 @@ function isSafeExpression(node: AstNode, rootAst: AstNode): boolean {
 
     // 2. Type conversion: address(CONST)
     if (node.nodeType === 'FunctionCall' && (node.kind === 'typeConversion' || node.kind === 'functionCall')) {
-        // If it's address(X), check X.
         if (node.arguments && node.arguments.length > 0) {
             return isSafeExpression(node.arguments[0], rootAst);
         }
@@ -167,7 +185,7 @@ function isSafeExpression(node: AstNode, rootAst: AstNode): boolean {
                 if (decl.mutability === 'constant' || decl.mutability === 'immutable') {
                     return true;
                 }
-                // Check if it's a library (ContractDefinition with contractKind 'library')
+                // Check if it's a library
                 if (decl.nodeType === 'ContractDefinition' && decl.contractKind === 'library') {
                     return true;
                 }
@@ -175,9 +193,8 @@ function isSafeExpression(node: AstNode, rootAst: AstNode): boolean {
         }
     }
 
-    // 4. Member Access (e.g., Lib.foo) where Lib is a library
+    // 4. Member Access (e.g., Lib.foo)
     if (node.nodeType === 'MemberAccess') {
-        // If accessing a library property/function
         return isSafeExpression(node.expression, rootAst);
     }
 
@@ -185,22 +202,11 @@ function isSafeExpression(node: AstNode, rootAst: AstNode): boolean {
 }
 
 function isSafeYulExpression(node: any): boolean {
-    // YulLiteral: 0x123... (HexNumber, DecimalNumber, StringLiteral)
     if (node.nodeType === 'YulLiteral') return true;
-
-    // YulFunctionCall could be complex, assume unsafe unless explicitly constant (like memory guard?)
-
-    // YulIdentifier: Check if it refers to a constant? Yul doesn't link to Solidity AST easily here.
-    // For bad actor detection, any non-literal delegatecall target in assembly is suspicious.
-    // Safe use of assembly delegatecall usually hardcodes the address or reads from an immutable variable (which ends up as PUSH in bytecode but variable access in Yul).
-    // If it's an immutable variable, Solc might inline it or use `verbatim`.
-
-    // Let's assume unsafe for now.
     return false;
 }
 
 function findDeclaration(ast: AstNode, id: number): AstNode | null {
-    // DFS to find node with id
     let result: AstNode | null = null;
 
     function visit(node: AstNode) {
