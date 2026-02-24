@@ -18,11 +18,10 @@ const expectedResults: Record<string, boolean> = {
   'StorageSlotBackdoor.sol': true,
   'FallbackProxy.sol': true,
   'ObfuscatedAssembly.sol': true,
-
-  'Bypass.sol': true, // Should be true (unsafe) but current implementation fails
+  'Bypass.sol': true,
+  'ImmutableBypass.sol': true, // Expect PROXY (Unsafe), but currently returns SAFE (false).
 };
 
-// ... implementation map ...
 const expectedImplementations: Record<string, any> = {
   'EIP1967Proxy.sol': { type: 'storageSlot', value: '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc' },
   'StorageSlotBackdoor.sol': { type: 'storageSlot', value: '0x1122334455667788990011223344556677889900112233445566778899001122' },
@@ -65,6 +64,7 @@ describe('Proxy Detector', () => {
     });
   });
 
+  // Keep other tests (bytecode mismatch, etc.)
   it('should fast-pass (safe) on mismatching bytecode IF no delegatecall present', () => {
     const file = 'SimpleStorage.sol';
     const sourcePath = path.join(contractsDir, file);

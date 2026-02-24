@@ -14,7 +14,6 @@ interface AnalysisResult {
 }
 
 export function detectProxy(source: string, originalBytecode: string, fileName: string = 'Contract.sol'): AnalysisResult {
-
   const hasDelegate = hasDelegateCall(originalBytecode);
   if (!hasDelegate) return { isProxy: false, reason: 'No DELEGATECALL opcode found in bytecode.' };
 
@@ -115,18 +114,13 @@ function isSafeExpression(node: AstNode, rootAst: AstNode): boolean {
     // 1. Literal: Always safe (address(0x...))
     if (node.nodeType === 'Literal') return true;
 
-    // 2. FunctionCall handling:
-    // Only allow explicit 'typeConversion' (e.g. address(foo)).
-    // Reject generic 'functionCall' because a function can return unsafe dynamic values
-    // even if its arguments are safe (e.g. the Trojan Function exploit).
+    // 2. FunctionCall: Only Allow typeConversion
     if (node.nodeType === 'FunctionCall') {
         if (node.kind === 'typeConversion') {
             if (node.arguments && node.arguments.length > 0) {
                 return isSafeExpression(node.arguments[0], rootAst);
             }
         }
-        // Generic 'functionCall' is UNsafe unless we analyze the function body (complex).
-        // By default, reject it.
         return false;
     }
 
@@ -136,7 +130,12 @@ function isSafeExpression(node: AstNode, rootAst: AstNode): boolean {
         if (referencedDeclarationId) {
             const decl = findDeclaration(rootAst, referencedDeclarationId);
             if (decl) {
-                if (decl.mutability === 'constant' || decl.mutability === 'immutable') return true;
+                // PATCH: Only allow 'constant'. Reject 'immutable'.
+                // Immutable variables are set in constructor (dynamic at deploy time),
+                // so they are unsafe proxies unless hardcoded (which detector can't easily prove).
+                if (decl.mutability === 'constant') return true;
+
+                // Allow Libraries
                 if (decl.nodeType === 'ContractDefinition' && decl.contractKind === 'library') return true;
             }
         }
