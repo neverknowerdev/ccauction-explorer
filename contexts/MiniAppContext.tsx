@@ -11,6 +11,7 @@ interface MiniAppContextType {
   fid: number | null;
   profilePicture: string | null;
   isMiniApp: boolean;
+  isLoading?: boolean;
   requestFarcasterNotifications?: () => Promise<boolean>;
 }
 
@@ -21,6 +22,7 @@ const MiniAppContext = createContext<MiniAppContextType>({
   fid: null,
   profilePicture: null,
   isMiniApp: false,
+  isLoading: true,
 });
 
 function MiniAppContextProvider({ children }: { children: ReactNode }) {
@@ -129,6 +131,7 @@ function MiniAppContextProvider({ children }: { children: ReactNode }) {
         fid,
         profilePicture,
         isMiniApp,
+        isLoading: !isReady,
         requestFarcasterNotifications
     }}>
       {children}

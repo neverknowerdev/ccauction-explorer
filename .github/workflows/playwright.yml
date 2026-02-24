@@ -33,8 +33,8 @@ jobs:
       run: yarn build
       env:
         DB_CONNECTION_STRING: postgres://user:password@localhost:5432/test_db
-        NEXT_PUBLIC_VAPID_PUBLIC_KEY: BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjS54caBK28Zo23CSVjaQ38JcWs9B0_pgauRw
-        VAPID_PRIVATE_KEY: private_key_mock
+        NEXT_PUBLIC_VAPID_PUBLIC_KEY: BMockKey_ForTestingOnly_1234567890
+        VAPID_PRIVATE_KEY: MockPrivateKey_ForTestingOnly
 
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
@@ -43,8 +43,9 @@ jobs:
       run: npx playwright test
       env:
         DB_CONNECTION_STRING: postgres://user:password@localhost:5432/test_db
-        NEXT_PUBLIC_VAPID_PUBLIC_KEY: BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjS54caBK28Zo23CSVjaQ38JcWs9B0_pgauRw
-        VAPID_PRIVATE_KEY: private_key_mock
+        NEXT_PUBLIC_VAPID_PUBLIC_KEY: BMockKey_ForTestingOnly_1234567890
+        VAPID_PRIVATE_KEY: MockPrivateKey_ForTestingOnly
+        CI: true
 
     services:
       postgres:

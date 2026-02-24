@@ -5,325 +5,292 @@ import { useRouter } from 'next/navigation';
 import BottomNav from '@/components/BottomNav';
 import { useMiniApp } from '@/contexts/MiniAppContext';
 
-// Simple Toggle Component
 function Toggle({ label, checked, onChange, disabled }: { label: string, checked: boolean, onChange: (val: boolean) => void, disabled?: boolean }) {
   return (
-    <div className="flex items-center justify-between px-4 py-3.5">
-      <span className={`text-sm font-medium ${disabled ? 'text-white/40' : 'text-white'}`}>{label}</span>
+    <div className="flex items-center justify-between py-3">
+      <span className={`text-sm font-medium ${disabled ? 'text-white/50' : 'text-white'}`}>{label}</span>
       <button
         onClick={() => !disabled && onChange(!checked)}
-        className={`relative w-11 h-6 rounded-full transition-colors ${checked ? 'bg-purple-500' : 'bg-white/20'} ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+        className={`relative w-11 h-6 rounded-full transition-colors ${checked ? 'bg-green-500' : 'bg-gray-600'} ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
         disabled={disabled}
       >
         <span
-          className={`absolute left-1 top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${checked ? 'translate-x-5' : ''}`}
+          className={`absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform ${checked ? 'translate-x-5' : ''}`}
         />
       </button>
     </div>
   );
 }
 
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
 export default function NotificationsPage() {
   const router = useRouter();
-  const { walletAddress, requestFarcasterNotifications, isMiniApp } = useMiniApp();
+  const { walletAddress, requestFarcasterNotifications, isMiniApp, isLoading: isWalletLoading } = useMiniApp();
 
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'ok' | 'error'>('idle');
-
-  // Channels State
+  const [isLoadingData, setIsLoadingData] = useState(false);
   const [channels, setChannels] = useState({
+    push: false,      // "Web Notifications" or "Mini-App Notifications"
     email: false,
     telegram: false,
-    farcaster: false,
-    web_push: false,
-    baseapp: false,
   });
-
-  // Filter State — $50 default to weed out test auctions
   const [filters, setFilters] = useState({
-    minRaisedAmount: '50',
+    minRaisedAmount: '',
     minFdv: '',
     maxFdv: '',
   });
 
+  // Fetch preferences when wallet is connected
   useEffect(() => {
     if (walletAddress) {
       fetchPreferences();
-    } else {
-      setIsLoading(false);
     }
   }, [walletAddress]);
 
   const fetchPreferences = async () => {
+    setIsLoadingData(true);
     try {
       const res = await fetch('/api/notifications/preferences', {
         headers: { 'x-wallet-address': walletAddress! }
       });
       if (res.ok) {
         const data = await res.json();
+        const prefs = data.preferences || {};
+        const enabled = prefs.enabledChannels || [];
 
-        const enabled = data.preferences?.enabledChannels || [];
+        // Map backend channels to UI state
+        // 'web_push', 'farcaster', 'baseapp' -> 'push' toggle
+        const hasPush = enabled.includes('web_push') || enabled.includes('farcaster') || enabled.includes('baseapp');
+
         setChannels({
+          push: hasPush,
           email: enabled.includes('email'),
           telegram: enabled.includes('telegram'),
-          farcaster: enabled.includes('farcaster'),
-          web_push: enabled.includes('web_push'),
-          baseapp: enabled.includes('baseapp'),
         });
 
         setFilters({
-          minRaisedAmount: data.preferences?.minRaisedAmount ?? '50',
-          minFdv: data.preferences?.minFdv || '',
-          maxFdv: data.preferences?.maxFdv || '',
+          minRaisedAmount: prefs.minRaisedAmount || '',
+          minFdv: prefs.minFdv || '',
+          maxFdv: prefs.maxFdv || '',
         });
       }
     } catch (err) {
       console.error('Failed to load preferences', err);
     } finally {
-      setIsLoading(false);
+      setIsLoadingData(false);
+    }
+  };
+
+  const handlePushToggle = async (enabled: boolean) => {
+    if (!walletAddress) return;
+
+    if (enabled) {
+      if (isMiniApp) {
+        // Mini-App Flow
+        if (requestFarcasterNotifications) {
+          const success = await requestFarcasterNotifications();
+          if (success) setChannels(p => ({ ...p, push: true }));
+          else alert('Failed to enable Mini-App notifications');
+        } else {
+          // Fallback or BaseApp specific check if needed
+          setChannels(p => ({ ...p, push: true }));
+        }
+      } else {
+        // Web Flow
+        if (!('Notification' in window)) {
+          alert('This browser does not support desktop notification');
+          return;
+        }
+
+        let permission = Notification.permission;
+        if (permission === 'default') {
+          permission = await Notification.requestPermission();
+        }
+
+        if (permission === 'granted') {
+          try {
+            const sw = await navigator.serviceWorker.ready;
+            let sub = await sw.pushManager.getSubscription();
+            if (!sub) {
+              const res = await fetch('/api/notifications/vapid-public-key');
+              const { publicKey } = await res.json();
+              if (!publicKey) throw new Error('VAPID key missing');
+
+              sub = await sw.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(publicKey)
+              });
+            }
+
+            // Register subscription
+            await fetch('/api/notifications/register', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-wallet-address': walletAddress
+              },
+              body: JSON.stringify({ webPushSubscription: sub })
+            });
+
+            setChannels(p => ({ ...p, push: true }));
+          } catch (e) {
+            console.error(e);
+            alert('Failed to subscribe to push notifications');
+          }
+        } else {
+          alert('Permission denied. Please enable notifications in your browser settings.');
+        }
+      }
+    } else {
+      setChannels(p => ({ ...p, push: false }));
     }
   };
 
   const savePreferences = async () => {
-    setIsSaving(true);
-    setSaveStatus('idle');
-    const enabledChannels = Object.entries(channels)
-      .filter(([_, enabled]) => enabled)
-      .map(([key]) => key);
+    if (!walletAddress) return;
+
+    // Map UI 'push' back to specific backend channels based on context
+    const enabledChannels = [];
+    if (channels.email) enabledChannels.push('email');
+    if (channels.telegram) enabledChannels.push('telegram');
+
+    if (channels.push) {
+      if (isMiniApp) {
+        // For MiniApp, we might enable 'farcaster' AND 'baseapp' generally,
+        // or rely on what tokens we have. For simplicity, enable both flags.
+        enabledChannels.push('farcaster');
+        enabledChannels.push('baseapp');
+      } else {
+        enabledChannels.push('web_push');
+      }
+    }
 
     try {
-      const res = await fetch('/api/notifications/preferences', {
+      await fetch('/api/notifications/preferences', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(walletAddress ? { 'x-wallet-address': walletAddress } : {}),
+          'x-wallet-address': walletAddress
         },
         body: JSON.stringify({
           enabledChannels,
           minRaisedAmount: filters.minRaisedAmount || null,
           minFdv: filters.minFdv || null,
           maxFdv: filters.maxFdv || null,
-          chainIds: null,
-        }),
+          chainIds: null
+        })
       });
-      setSaveStatus(res.ok ? 'ok' : 'error');
-    } catch {
-      setSaveStatus('error');
-    } finally {
-      setIsSaving(false);
-      // Auto-clear after 3 s
-      setTimeout(() => setSaveStatus('idle'), 3000);
+      alert('Preferences saved!');
+      // Reload/Refresh data to ensure consistency
+      fetchPreferences();
+    } catch (err) {
+      alert('Failed to save settings');
     }
   };
 
-  const handleWebPushToggle = async (enabled: boolean) => {
-    if (enabled) {
-      const permission = await Notification.requestPermission();
-      if (permission === 'granted') {
-        // Register SW first (no-op if already registered)
-        await navigator.serviceWorker.register('/sw.js');
-        const sw = await navigator.serviceWorker.ready;
-        let sub = await sw.pushManager.getSubscription();
+  const isLocked = !walletAddress;
 
-        if (!sub) {
-          let applicationServerKey: BufferSource | undefined;
-          try {
-            const res = await fetch('/api/notifications/vapid-public-key');
-            if (res.ok) {
-              const { publicKey } = await res.json();
-              applicationServerKey = urlBase64ToUint8Array(publicKey);
-            }
-          } catch {
-            // no VAPID key configured — subscribe without it
-          }
-
-          sub = await sw.pushManager.subscribe({
-            userVisibleOnly: true,
-            ...(applicationServerKey ? { applicationServerKey } : {}),
-          });
-        }
-
-        await fetch('/api/notifications/register', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-wallet-address': walletAddress!
-          },
-          body: JSON.stringify({ webPushSubscription: sub.toJSON() })
-        });
-
-        setChannels(prev => ({ ...prev, web_push: true }));
-      } else {
-        alert('Permission denied');
-      }
-    } else {
-      setChannels(prev => ({ ...prev, web_push: false }));
-    }
-  };
-
-  const handleFarcasterToggle = async (enabled: boolean) => {
-    if (enabled) {
-      if (isMiniApp && requestFarcasterNotifications) {
-        const success = await requestFarcasterNotifications();
-        if (success) {
-          setChannels(prev => ({ ...prev, farcaster: true }));
-        } else {
-          alert('Failed to enable Farcaster notifications');
-        }
-      } else {
-        alert('Only available in Farcaster Mini App');
-      }
-    } else {
-      setChannels(prev => ({ ...prev, farcaster: false }));
-    }
-  };
-
-  const handleBaseAppToggle = async (enabled: boolean) => {
-    // Basic implementation for BaseApp toggle
-    // In reality, this would check if we are in Base environment
-    // For now, allow enabling if the user selects it, logic handled in service
-    setChannels(prev => ({ ...prev, baseapp: enabled }));
-  };
-
-  if (isLoading) return (
-    <div className="min-h-screen pb-20">
-      <div className="max-w-md mx-auto">
-        <div className="p-6 text-white text-center">Loading...</div>
-      </div>
-    </div>
-  );
+  if (isWalletLoading) return <div className="p-6 text-white text-center">Loading...</div>;
 
   return (
-    <div className="min-h-screen pb-20">
-      <div className="max-w-md mx-auto">
-        {/* Header */}
-        <header className="bg-white/10 backdrop-blur-md border-b border-white/20 px-6 py-4 flex items-center gap-3">
-          <button onClick={() => router.back()} className="text-white/80 hover:text-white transition-colors">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <h1 className="text-xl font-bold text-white">Notifications</h1>
-        </header>
+    <div className="min-h-screen pb-20 bg-gradient-to-br from-purple-900 via-purple-800 to-indigo-900">
+      <header className="bg-white/10 backdrop-blur-md border-b border-white/20 px-6 py-4 flex items-center gap-3">
+        <button onClick={() => router.back()} className="text-white">
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+        </button>
+        <h1 className="text-xl font-bold text-white">Notifications</h1>
+      </header>
 
-        {/* Content */}
-        <main className="px-4 py-5 space-y-5">
-          {/* Channels Section */}
-          <section>
-            <h2 className="text-white/70 text-xs uppercase tracking-wider mb-3 px-1">Channels</h2>
-            <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 divide-y divide-white/10 overflow-hidden">
-              <Toggle
-                label="Browser Push"
-                checked={channels.web_push}
-                onChange={handleWebPushToggle}
-              />
-              <Toggle
-                label="Farcaster"
-                checked={channels.farcaster}
-                onChange={handleFarcasterToggle}
-                disabled={!isMiniApp}
-              />
-              <Toggle
-                label="Base Mini App"
-                checked={channels.baseapp}
-                onChange={handleBaseAppToggle}
-              />
-              <Toggle
-                label="Email"
-                checked={channels.email}
-                onChange={(v) => setChannels(p => ({ ...p, email: v }))}
-                disabled={true}
-              />
-              <Toggle
-                label="Telegram"
-                checked={channels.telegram}
-                onChange={(v) => setChannels(p => ({ ...p, telegram: v }))}
-                disabled={true}
+      <main className="px-6 py-6 space-y-8">
+        {isLocked && (
+          <div className="bg-yellow-500/20 text-yellow-200 p-4 rounded-xl border border-yellow-500/30 text-sm">
+            Please connect your wallet to manage notifications.
+          </div>
+        )}
+
+        {/* Channels Section */}
+        <section className={isLocked ? 'opacity-50 pointer-events-none' : ''}>
+          <h2 className="text-white/70 text-sm font-semibold uppercase tracking-wider mb-4">Channels</h2>
+          <div className="bg-white/10 backdrop-blur-md rounded-xl p-4 border border-white/20 divide-y divide-white/10">
+            <Toggle
+              label={isMiniApp ? "Mini-App Notifications" : "Web Notifications"}
+              checked={channels.push}
+              onChange={handlePushToggle}
+            />
+            <Toggle
+              label="Email"
+              checked={channels.email}
+              onChange={(v) => setChannels(p => ({...p, email: v}))}
+              disabled={true} // Still placeholder for verify flow
+            />
+            <Toggle
+              label="Telegram"
+              checked={channels.telegram}
+              onChange={(v) => setChannels(p => ({...p, telegram: v}))}
+              disabled={true}
+            />
+          </div>
+        </section>
+
+        {/* Filters Section */}
+        <section className={isLocked ? 'opacity-50 pointer-events-none' : ''}>
+          <h2 className="text-white/70 text-sm font-semibold uppercase tracking-wider mb-4">Alert Rules</h2>
+          <div className="bg-white/10 backdrop-blur-md rounded-xl p-6 border border-white/20 space-y-4">
+            <div>
+              <label className="block text-white/80 text-sm mb-1">Min Raised Amount ($)</label>
+              <input
+                type="number"
+                value={filters.minRaisedAmount}
+                onChange={(e) => setFilters(p => ({...p, minRaisedAmount: e.target.value}))}
+                className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500"
+                placeholder="e.g. 1000"
               />
             </div>
-          </section>
 
-          {/* Filters Section */}
-          <section>
-            <h2 className="text-white/70 text-xs uppercase tracking-wider mb-3 px-1">Alert Rules</h2>
-            <div className="bg-white/10 backdrop-blur-md rounded-xl p-4 border border-white/20 space-y-4">
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-white/70 text-xs mb-1">Min Raised Amount ($)</label>
-                <p className="text-white/40 text-xs mb-1.5">Filters out test and fake auctions</p>
+                <label className="block text-white/80 text-sm mb-1">Min FDV ($)</label>
                 <input
                   type="number"
-                  value={filters.minRaisedAmount}
-                  onChange={(e) => setFilters(p => ({ ...p, minRaisedAmount: e.target.value }))}
-                  className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm placeholder-white/30 focus:outline-none focus:border-purple-400 transition-colors"
-                  placeholder="e.g. 50"
+                  value={filters.minFdv}
+                  onChange={(e) => setFilters(p => ({...p, minFdv: e.target.value}))}
+                  className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500"
+                  placeholder="Min"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-white/70 text-xs mb-1.5">Min FDV ($)</label>
-                  <input
-                    type="number"
-                    value={filters.minFdv}
-                    onChange={(e) => setFilters(p => ({ ...p, minFdv: e.target.value }))}
-                    className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm placeholder-white/30 focus:outline-none focus:border-purple-400 transition-colors"
-                    placeholder="Min"
-                  />
-                </div>
-                <div>
-                  <label className="block text-white/70 text-xs mb-1.5">Max FDV ($)</label>
-                  <input
-                    type="number"
-                    value={filters.maxFdv}
-                    onChange={(e) => setFilters(p => ({ ...p, maxFdv: e.target.value }))}
-                    className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm placeholder-white/30 focus:outline-none focus:border-purple-400 transition-colors"
-                    placeholder="Max"
-                  />
-                </div>
+              <div>
+                <label className="block text-white/80 text-sm mb-1">Max FDV ($)</label>
+                <input
+                  type="number"
+                  value={filters.maxFdv}
+                  onChange={(e) => setFilters(p => ({...p, maxFdv: e.target.value}))}
+                  className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500"
+                  placeholder="Max"
+                />
               </div>
             </div>
-          </section>
+          </div>
+        </section>
 
-          {/* Save feedback banner */}
-          {saveStatus === 'ok' && (
-            <div className="flex items-center gap-2 bg-green-500/15 border border-green-400/25 rounded-xl px-4 py-3">
-              <span className="text-green-400 text-base">✓</span>
-              <p className="text-green-300 text-sm">Preferences saved!</p>
-            </div>
-          )}
-          {saveStatus === 'error' && (
-            <div className="flex items-center gap-2 bg-red-500/15 border border-red-400/25 rounded-xl px-4 py-3">
-              <span className="text-red-400 text-base">✕</span>
-              <p className="text-red-300 text-sm">Failed to save — please try again.</p>
-            </div>
-          )}
-
-          <button
-            onClick={savePreferences}
-            disabled={isSaving}
-            className="w-full bg-purple-600 hover:bg-purple-500 active:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition-colors"
-          >
-            {isSaving ? 'Saving…' : 'Save Preferences'}
-          </button>
-        </main>
-      </div>
+        <button
+          onClick={savePreferences}
+          disabled={isLocked || isLoadingData}
+          className={`w-full font-bold py-3 rounded-xl transition-colors shadow-lg ${isLocked ? 'bg-gray-600 text-gray-400 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/50'}`}
+        >
+          {isLoadingData ? 'Saving...' : 'Save Preferences'}
+        </button>
+      </main>
 
       <BottomNav />
     </div>
   );
-}
-
-function urlBase64ToUint8Array(base64String: string) {
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding)
-    .replace(/-/g, '+')
-    .replace(/_/g, '/');
-
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
 }
