@@ -29,12 +29,16 @@ jobs:
       env:
         DB_CONNECTION_STRING: postgres://user:password@localhost:5432/test_db
 
+    # No need for explicit 'yarn build' here since playwright.config.ts handles it,
+    # but keeping it doesn't hurt. However, removing it saves time/redundancy
+    # if we trust the config. But to be safe and fail fast, let's keep it but without start.
     - name: Build Next.js App
       run: yarn build
       env:
         DB_CONNECTION_STRING: postgres://user:password@localhost:5432/test_db
         NEXT_PUBLIC_VAPID_PUBLIC_KEY: BMockKey_ForTestingOnly_1234567890
         VAPID_PRIVATE_KEY: MockPrivateKey_ForTestingOnly
+        NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID: ${{ secrets.NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID }}
 
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
@@ -45,6 +49,8 @@ jobs:
         DB_CONNECTION_STRING: postgres://user:password@localhost:5432/test_db
         NEXT_PUBLIC_VAPID_PUBLIC_KEY: BMockKey_ForTestingOnly_1234567890
         VAPID_PRIVATE_KEY: MockPrivateKey_ForTestingOnly
+        NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID: ${{ secrets.NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID }}
+        DYNAMIC_TEST_ACCOUNT_OTP: ${{ secrets.DYNAMIC_TEST_ACCOUNT_OTP }}
         CI: true
 
     services:

@@ -18,11 +18,11 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  // Run your local dev server before starting the tests
   webServer: process.env.CI ? {
-    command: 'yarn start',
+    // Force build inside the test runner to ensure artifacts exist
+    command: 'yarn build && yarn start',
     url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
+    reuseExistingServer: false,
+    timeout: 180 * 1000, // Increased timeout for build + start
   } : undefined,
 });
