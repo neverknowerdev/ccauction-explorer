@@ -1,7 +1,6 @@
 import { Contract } from 'sevm';
 
 export function hasDelegateCall(bytecode: string): boolean {
-  // Ensure bytecode starts with 0x
   if (bytecode && !bytecode.startsWith('0x')) {
     bytecode = '0x' + bytecode;
   }
@@ -10,9 +9,8 @@ export function hasDelegateCall(bytecode: string): boolean {
 
   const contract = new Contract(bytecode);
 
-  // contract.opcodes() is a generator in newer SEVM versions
   for (const op of contract.opcodes()) {
-      if (op.mnemonic === 'DELEGATECALL') {
+      if (op.mnemonic === 'DELEGATECALL' || op.mnemonic === 'CALLCODE') {
           return true;
       }
   }

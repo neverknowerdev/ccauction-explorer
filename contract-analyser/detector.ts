@@ -15,7 +15,7 @@ interface AnalysisResult {
 
 export function detectProxy(source: string, originalBytecode: string, fileName: string = 'Contract.sol'): AnalysisResult {
   const hasDelegate = hasDelegateCall(originalBytecode);
-  if (!hasDelegate) return { isProxy: false, reason: 'No DELEGATECALL opcode found in bytecode.' };
+  if (!hasDelegate) return { isProxy: false, reason: 'No DELEGATECALL or CALLCODE opcode found in bytecode.' };
 
   let compilationResult;
   try {
@@ -33,7 +33,7 @@ export function detectProxy(source: string, originalBytecode: string, fileName: 
   }
 
   const delegateCalls = findDelegateCalls(ast);
-  if (delegateCalls.length === 0) return { isProxy: true, reason: 'DELEGATECALL found in bytecode but not detected in AST (Potential obfuscation).' };
+  if (delegateCalls.length === 0) return { isProxy: true, reason: 'DELEGATECALL/CALLCODE found in bytecode but not detected in AST (Potential obfuscation).' };
 
   for (const call of delegateCalls) {
     const analysis = analyzeDelegateCall(call, ast);
@@ -46,8 +46,6 @@ export function detectProxy(source: string, originalBytecode: string, fileName: 
   return { isProxy: false, reason: 'No unsafe proxy patterns detected.' };
 }
 
-// ... AST Traversal ...
-
 interface AstNode { nodeType: string; [key: string]: any; }
 
 function findDelegateCalls(ast: AstNode): AstNode[] {
@@ -58,7 +56,7 @@ function findDelegateCalls(ast: AstNode): AstNode[] {
       if (node.kind === 'functionCall' &&
           node.expression &&
           node.expression.nodeType === 'MemberAccess' &&
-          node.expression.memberName === 'delegatecall') {
+          (node.expression.memberName === 'delegatecall' || node.expression.memberName === 'callcode')) {
         calls.push(node);
       }
     }
@@ -75,7 +73,7 @@ function findDelegateCalls(ast: AstNode): AstNode[] {
   function visitYul(node: any, calls: any[]) {
       if (!node) return;
       if (node.nodeType === 'YulFunctionCall') {
-          if (node.functionName && node.functionName.name === 'delegatecall') {
+          if (node.functionName && (node.functionName.name === 'delegatecall' || node.functionName.name === 'callcode')) {
               calls.push({ nodeType: 'YulDelegateCall', ...node });
           }
       }
@@ -95,14 +93,14 @@ function analyzeDelegateCall(node: AstNode, rootAst: AstNode): { isProxy: boolea
     const expression = node.expression;
     const targetExpression = expression.expression;
     if (isSafeExpression(targetExpression, rootAst)) return { isProxy: false };
-    else return { isProxy: true, reason: 'Delegatecall to dynamic or non-constant target found (High-level).' };
+    else return { isProxy: true, reason: 'Delegatecall/Callcode to dynamic or non-constant target found (High-level).' };
   }
   if (node.nodeType === 'YulDelegateCall') {
       const args = node.arguments;
       if (args && args.length >= 2) {
           const target = args[1];
           if (isSafeYulExpression(target)) return { isProxy: false };
-          else return { isProxy: true, reason: 'Delegatecall to dynamic target found (Assembly).' };
+          else return { isProxy: true, reason: 'Delegatecall/Callcode to dynamic target found (Assembly).' };
       }
   }
   return { isProxy: true, reason: 'Unknown delegatecall pattern' };
@@ -130,12 +128,7 @@ function isSafeExpression(node: AstNode, rootAst: AstNode): boolean {
         if (referencedDeclarationId) {
             const decl = findDeclaration(rootAst, referencedDeclarationId);
             if (decl) {
-                // PATCH: Only allow 'constant'. Reject 'immutable'.
-                // Immutable variables are set in constructor (dynamic at deploy time),
-                // so they are unsafe proxies unless hardcoded (which detector can't easily prove).
                 if (decl.mutability === 'constant') return true;
-
-                // Allow Libraries
                 if (decl.nodeType === 'ContractDefinition' && decl.contractKind === 'library') return true;
             }
         }

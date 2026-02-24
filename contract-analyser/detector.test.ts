@@ -19,7 +19,10 @@ const expectedResults: Record<string, boolean> = {
   'FallbackProxy.sol': true,
   'ObfuscatedAssembly.sol': true,
   'Bypass.sol': true,
-  'ImmutableBypass.sol': true, // Expect PROXY (Unsafe), but currently returns SAFE (false).
+  'ImmutableBypass.sol': true,
+
+  // NEW: CALLCODE bypass
+  'CallcodeBypass.sol': true, // Expect Unsafe (Proxy), currently Safe.
 };
 
 const expectedImplementations: Record<string, any> = {
@@ -64,7 +67,7 @@ describe('Proxy Detector', () => {
     });
   });
 
-  // Keep other tests (bytecode mismatch, etc.)
+  // Keep other tests
   it('should fast-pass (safe) on mismatching bytecode IF no delegatecall present', () => {
     const file = 'SimpleStorage.sol';
     const sourcePath = path.join(contractsDir, file);
