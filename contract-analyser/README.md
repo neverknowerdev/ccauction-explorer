@@ -1,70 +1,55 @@
-# EVM Proxy & Backdoor Detector
+# Contract Analyser - Proxy Detector
 
-This module provides a rigorous, programmatic way to detect proxy contracts and potential backdoors in EVM smart contracts, given their source code and deployed bytecode.
+A robust, low-level proxy detection system for EVM smart contracts. Designed to identify both standard and obfuscated proxy patterns, assuming a malicious actor attempting to bypass detection.
 
-## Overview
+## How It Works
 
-The detector operates on the principle of **verification before analysis**:
-1.  **Bytecode Pre-Scan (Fast Path)**: We scan the *Original Bytecode* (using SEVM) to check if the `DELEGATECALL` opcode (0xF4) is present.
-    -   If NOT present -> The contract cannot be a proxy. **Mark as Safe**.
-    -   If present -> Proceed to verification.
-2.  **Verification**: We compile the provided source code and ensure it exactly matches the deployed bytecode. If they mismatch, the contract is flagged (source cannot be trusted).
-3.  **Analysis**: We perform static analysis on the AST to identify *how* `delegatecall` is used.
-4.  **Heuristics**: Distinguishes between "safe" usage (libraries) and "proxy/backdoor" usage.
-5.  **Implementation Extraction**: If a proxy is detected, it attempts to extract the Implementation Address or Storage Slot.
+The detector employs a multi-stage analysis pipeline:
 
-## Algorithm
+1.  **Bytecode Scanning (Fast Path)**:
+    -   Scans the provided original bytecode for `DELEGATECALL` (0xF4) or `CALLCODE` (0xF2) opcodes.
+    -   If neither is found, the contract is deemed **Safe** (Not a Proxy).
 
-### 1. Bytecode Scanning (SEVM)
--   **Tool**: `sevm` (EVM Disassembler/Decompiler).
--   **Process**: Disassemble bytecode into opcodes.
--   **Check**: Does the opcode list contain `DELEGATECALL`?
-    -   *Note*: This safely ignores `0xF4` bytes inside PUSH data (e.g., `uint x = 0xF4`).
+2.  **Source Verification**:
+    -   Compiles the provided source code using `solc`.
+    -   Strips CBOR metadata and compares the compiled bytecode with the original bytecode.
+    -   **Result**: If bytecodes do not match, the check fails (**Unsafe**), preventing source-code spoofing.
 
-### 2. Compilation & Verification
--   **Input**: Source Code, Original Bytecode.
--   **Process**:
-    1.  Compile Source -> `CompiledBytecode`.
-    2.  **Strip Metadata**: Remove CBOR-encoded metadata hash from both bytecodes.
-    3.  **Compare**: `Strip(Original) == Strip(Compiled)`.
--   **Result**: Mismatch -> **Flag as Proxy/Malicious**.
+3.  **AST Analysis**:
+    -   Traverses the Abstract Syntax Tree (AST) to locate all `delegatecall` and `callcode` operations.
+    -   **Hidden Delegatecall Check**: If the bytecode contains `DELEGATECALL` opcodes but the AST does not contain corresponding high-level nodes (e.g., due to `verbatim` or obscure assembly), the contract is flagged as **Unsafe**.
+    -   **Verbatim Check**: Explicitly scans Yul `verbatim` instructions for injected `DELEGATECALL` (0xF4) or `CALLCODE` (0xF2) opcodes.
 
-### 3. AST Analysis (High-Level & Assembly)
--   **Target**: `FunctionCall` (Solidity) and `YulFunctionCall` (Assembly) to `delegatecall`.
--   **Check**: Analyze the target address expression.
-    -   **Safe**: Literal address, Constant/Immutable variable, Library call.
-    -   **Unsafe**: Dynamic target (Storage, Input, Calculation).
+4.  **Target Safety Verification**:
+    -   For every detected delegatecall, the analyzer examines the **target address expression**.
+    -   **Safe Targets**: Only targets that are strictly **compile-time constants** or **literals** (e.g., `0x123...`, `LibraryName`) are considered safe.
+    -   **Unsafe Targets**: Any target depending on runtime state is flagged as **Unsafe** (Proxy). This includes:
+        -   Storage variables (SLOAD).
+        -   Input data (Calldata/Memory).
+        -   Immutable variables (set at deployment time, thus user-controlled).
+        -   Function return values (unless type conversion of literals).
+        -   Complex expressions (Ternary, Array access, Mappings, Struct members).
+        -   `msg.sender` or `address(this)`.
 
-### 4. Implementation Extraction
-If detected as a proxy, the tool scans for:
--   **EIP-1967 Slot**: Looks for `0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc` usage (Literal or Constant).
--   **Minimal Proxy (EIP-1167)**: Detects standard bytecode pattern and extracts the embedded address.
--   **Generic Storage Slot**: Detects `sload(CONST)` calls in assembly and returns the constant value as the likely storage slot.
+## Security Features & Mitigations
 
-## Usage
+This tool is hardened against various evasion techniques:
 
-```typescript
-import { detectProxy } from './contract-analyser/detector';
-
-const source = `...`;
-const bytecode = `0x...`;
-
-const result = detectProxy(source, bytecode);
-
-if (result.isProxy) {
-  console.log('Proxy Detected:', result.reason);
-  if (result.implementation) {
-      console.log('Implementation:', result.implementation);
-      // { type: 'storageSlot', value: '0x...' } or { type: 'address', value: '0x...' }
-  }
-} else {
-  console.log('Contract is Safe');
-}
-```
+-   **Trojan Function Bypass**: Prevents using "safe" function calls (like `address(safe)`) to mask unsafe return values. Only explicit type conversions of literals are allowed.
+-   **Immutable Bypass**: Detects and rejects `immutable` variables as targets, as they can be manipulated during deployment to point to malicious implementations.
+-   **CALLCODE Legacy Attack**: Detects the deprecated `CALLCODE` opcode which functions similarly to `DELEGATECALL`.
+-   **Verbatim / Inline Assembly**: specific checks for `verbatim` instruction injection in Yul/Assembly.
+-   **Obfuscation / Bytecode Mismatch**: Strictly enforces source-to-bytecode correspondence.
+-   **Chaos Patterns**: Tested against complex Solidity patterns (Ternary, Structs, Arrays, Tuples) to ensure the AST traverser is not confused.
 
 ## Testing
 
-Run tests:
+The module includes a comprehensive test suite covering:
+1.  **Standard Proxies**: EIP-1967, EIP-1167 (Minimal), UUPS.
+2.  **Safe Contracts**: Libraries, Hardcoded Delegations.
+3.  **Chaos / Bypasses**: 10+ complex patterns designed to trick the analyzer.
+
+Run tests with:
 ```bash
-npx vitest run contract-analyser/detector.test.ts
+npx vitest run contract-analyser/chaos.test.ts
 ```

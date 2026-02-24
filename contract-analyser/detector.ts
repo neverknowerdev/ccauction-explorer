@@ -73,8 +73,21 @@ function findDelegateCalls(ast: AstNode): AstNode[] {
   function visitYul(node: any, calls: any[]) {
       if (!node) return;
       if (node.nodeType === 'YulFunctionCall') {
-          if (node.functionName && (node.functionName.name === 'delegatecall' || node.functionName.name === 'callcode')) {
-              calls.push({ nodeType: 'YulDelegateCall', ...node });
+          if (node.functionName) {
+              const name = node.functionName.name;
+              if (name === 'delegatecall' || name === 'callcode') {
+                  calls.push({ nodeType: 'YulDelegateCall', ...node });
+              } else if (name.startsWith('verbatim_')) {
+                  // Check arguments for DELEGATECALL or CALLCODE opcodes in the injected bytecode
+                  if (node.arguments && node.arguments.length > 0) {
+                      const arg = node.arguments[0];
+                      if (arg.nodeType === 'YulLiteral' && arg.hexValue) {
+                           if (hasDelegateCall(arg.hexValue)) {
+                               calls.push({ nodeType: 'YulDelegateCall', ...node });
+                           }
+                      }
+                  }
+              }
           }
       }
       for (const key in node) {
@@ -102,6 +115,8 @@ function analyzeDelegateCall(node: AstNode, rootAst: AstNode): { isProxy: boolea
           if (isSafeYulExpression(target)) return { isProxy: false };
           else return { isProxy: true, reason: 'Delegatecall/Callcode to dynamic target found (Assembly).' };
       }
+      // Handle Verbatim or other unexpected structures
+      return { isProxy: true, reason: 'Delegatecall/Callcode found in potentially unsafe assembly/verbatim block.' };
   }
   return { isProxy: true, reason: 'Unknown delegatecall pattern' };
 }
