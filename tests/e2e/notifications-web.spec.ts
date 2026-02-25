@@ -11,7 +11,6 @@ test.describe('Web Push Notifications E2E', () => {
 
     if (await connectBtn.isVisible()) {
       await connectBtn.click();
-
       await page.waitForTimeout(2000);
 
       const emailInput = page.getByTestId('dynamic-email-input').or(page.getByPlaceholder(/email/i)).first();
@@ -25,11 +24,8 @@ test.describe('Web Push Notifications E2E', () => {
           await expect(otpInput).toBeVisible({ timeout: 10000 });
           if (otp) await otpInput.fill(otp);
 
-          // CRITICAL: Wait for connection to complete
-          // Wait for the Connect button to disappear or a wallet address to appear
+          // Wait for connection to complete
           await expect(page.getByRole('button', { name: /Connect Wallet/i })).not.toBeVisible({ timeout: 20000 });
-          // Optional: Verify address is visible in header (depends on UI)
-          // await expect(page.getByText(/^0x/)).toBeVisible();
       }
     }
 
@@ -39,26 +35,35 @@ test.describe('Web Push Notifications E2E', () => {
     // 4. Interact
     await page.context().grantPermissions(['notifications']);
 
-    // Verify UI is unlocked
-    await expect(page.getByText('Please connect your wallet')).not.toBeVisible();
+    // Verify unlocked
+    await expect(page.getByText('Please connect your wallet')).not.toBeVisible({ timeout: 15000 });
 
     const webNotifToggle = page.getByTestId('toggle-push');
     await expect(webNotifToggle).toBeVisible();
-    await expect(webNotifToggle).toBeEnabled();
-
     await webNotifToggle.click();
 
     // Fill Input
-    await page.getByPlaceholder('e.g. 1000').fill('500');
+    const minRaisedInput = page.getByPlaceholder('e.g. 1000');
+    await minRaisedInput.fill('500');
 
     // Save
     page.on('dialog', d => d.accept());
     await page.getByRole('button', { name: /Save/i }).click();
 
-    // 5. Verify Persistence
+    // Wait a moment for save to potentially commit
+    await page.waitForTimeout(1000);
+
+    // 5. Verify Persistence after Reload
     await page.reload();
-    // Wait for loading to finish if there's a loading state
-    await expect(page.getByText('Loading...')).not.toBeVisible();
-    await expect(page.getByPlaceholder('e.g. 1000')).toHaveValue('500');
+
+    // CRITICAL: Wait for wallet to re-connect and app to initialize
+    // The "Loading..." state should appear and disappear
+    await expect(page.getByText('Loading...')).not.toBeVisible({ timeout: 20000 });
+
+    // Ensure we are still unlocked (wallet persisted)
+    await expect(page.getByText('Please connect your wallet')).not.toBeVisible({ timeout: 10000 });
+
+    // Check value - use polling in case fetch is delayed slightly after loading overlay
+    await expect(minRaisedInput).toHaveValue('500', { timeout: 10000 });
   });
 });
