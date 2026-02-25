@@ -9,26 +9,27 @@ test.describe('Web Push Notifications E2E', () => {
     // 2. Connect Wallet via Dynamic Test Account
     const connectBtn = page.getByRole('button', { name: /Connect Wallet/i });
 
-    // If we are already connected (mocked or persisted), skip
     if (await connectBtn.isVisible()) {
       await connectBtn.click();
 
-      // Select Email Wallet
       await page.waitForTimeout(2000);
 
       const emailInput = page.getByTestId('dynamic-email-input').or(page.getByPlaceholder(/email/i)).first();
 
       if (await emailInput.isVisible()) {
-          // Use CORRECT test email format
           await emailInput.fill('testing+dynamic_test@dynamic.xyz');
-          // Find submit button
           await page.getByRole('button', { name: /Continue/i }).click();
 
           const otp = process.env.DYNAMIC_TEST_ACCOUNT_OTP;
-          // Wait for OTP field
           const otpInput = page.getByRole('textbox').first();
           await expect(otpInput).toBeVisible({ timeout: 10000 });
           if (otp) await otpInput.fill(otp);
+
+          // CRITICAL: Wait for connection to complete
+          // Wait for the Connect button to disappear or a wallet address to appear
+          await expect(page.getByRole('button', { name: /Connect Wallet/i })).not.toBeVisible({ timeout: 20000 });
+          // Optional: Verify address is visible in header (depends on UI)
+          // await expect(page.getByText(/^0x/)).toBeVisible();
       }
     }
 
@@ -38,11 +39,13 @@ test.describe('Web Push Notifications E2E', () => {
     // 4. Interact
     await page.context().grantPermissions(['notifications']);
 
-    // Find toggle by Test ID
-    const webNotifToggle = page.getByTestId('toggle-push');
+    // Verify UI is unlocked
+    await expect(page.getByText('Please connect your wallet')).not.toBeVisible();
 
-    // Wait for it to be visible
+    const webNotifToggle = page.getByTestId('toggle-push');
     await expect(webNotifToggle).toBeVisible();
+    await expect(webNotifToggle).toBeEnabled();
+
     await webNotifToggle.click();
 
     // Fill Input
@@ -54,6 +57,8 @@ test.describe('Web Push Notifications E2E', () => {
 
     // 5. Verify Persistence
     await page.reload();
+    // Wait for loading to finish if there's a loading state
+    await expect(page.getByText('Loading...')).not.toBeVisible();
     await expect(page.getByPlaceholder('e.g. 1000')).toHaveValue('500');
   });
 });

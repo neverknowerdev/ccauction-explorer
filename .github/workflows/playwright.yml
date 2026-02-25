@@ -29,26 +29,36 @@ jobs:
       env:
         DB_CONNECTION_STRING: postgres://user:password@localhost:5432/test_db
 
-    # No need for explicit 'yarn build' here since playwright.config.ts handles it,
-    # but keeping it doesn't hurt. However, removing it saves time/redundancy
-    # if we trust the config. But to be safe and fail fast, let's keep it but without start.
     - name: Build Next.js App
       run: yarn build
       env:
         DB_CONNECTION_STRING: postgres://user:password@localhost:5432/test_db
-        # Valid format VAPID public key
+        # Ensure consistent VAPID keys
         NEXT_PUBLIC_VAPID_PUBLIC_KEY: BHo3FsXcoAdopBuFpA5Z2lpAbBuC986NMyha6JSvLkqzCOWF-qhJTyisuvBjP5s_O-848f5NsheoPa03q-BxRAE
         VAPID_PRIVATE_KEY: kSMLd0MDqnRAw2JVvEg79OSISg4XAdxTIiWzD18OGvw
         NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID: ${{ secrets.NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID }}
 
+    # CACHE PLAYWRIGHT BROWSERS
+    - name: Cache Playwright Browsers
+      uses: actions/cache@v4
+      id: playwright-cache
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ hashFiles('**/yarn.lock') }}
+        restore-keys: |
+            ${{ runner.os }}-playwright-
+
     - name: Install Playwright Browsers
-      run: npx playwright install --with-deps
+      if: steps.playwright-cache.outputs.cache-hit != 'true'
+      run: npx playwright install --with-deps chromium
+      # Optimizations:
+      # 1. Install ONLY chromium if we only use that in config
+      # 2. --with-deps install sys deps
 
     - name: Run Playwright tests
       run: npx playwright test
       env:
         DB_CONNECTION_STRING: postgres://user:password@localhost:5432/test_db
-        # Valid format VAPID public key
         NEXT_PUBLIC_VAPID_PUBLIC_KEY: BHo3FsXcoAdopBuFpA5Z2lpAbBuC986NMyha6JSvLkqzCOWF-qhJTyisuvBjP5s_O-848f5NsheoPa03q-BxRAE
         VAPID_PRIVATE_KEY: kSMLd0MDqnRAw2JVvEg79OSISg4XAdxTIiWzD18OGvw
         NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID: ${{ secrets.NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID }}
