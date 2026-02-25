@@ -13,7 +13,7 @@ test.describe('Web Push Notifications E2E', () => {
     if (await connectBtn.isVisible()) {
       await connectBtn.click();
 
-      // Wait for the modal content
+      // Select Email Wallet
       await page.waitForTimeout(2000);
 
       const emailInput = page.getByTestId('dynamic-email-input').or(page.getByPlaceholder(/email/i)).first();
@@ -38,13 +38,12 @@ test.describe('Web Push Notifications E2E', () => {
     // 4. Interact
     await page.context().grantPermissions(['notifications']);
 
-    // Find "Web Notifications" toggle - looking for the specific structure
-    // Since UI has a label "Web Notifications" and a button next to it
-    const toggleBtn = page.locator('div').filter({ hasText: 'Web Notifications' }).locator('button');
+    // Find toggle by Test ID
+    const webNotifToggle = page.getByTestId('toggle-push');
 
-    // Wait for it to be actionable
-    await expect(toggleBtn).toBeVisible();
-    await toggleBtn.click();
+    // Wait for it to be visible
+    await expect(webNotifToggle).toBeVisible();
+    await webNotifToggle.click();
 
     // Fill Input
     await page.getByPlaceholder('e.g. 1000').fill('500');

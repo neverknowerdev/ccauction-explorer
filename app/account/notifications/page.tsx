@@ -5,11 +5,12 @@ import { useRouter } from 'next/navigation';
 import BottomNav from '@/components/BottomNav';
 import { useMiniApp } from '@/contexts/MiniAppContext';
 
-function Toggle({ label, checked, onChange, disabled }: { label: string, checked: boolean, onChange: (val: boolean) => void, disabled?: boolean }) {
+function Toggle({ label, checked, onChange, disabled, testId }: { label: string, checked: boolean, onChange: (val: boolean) => void, disabled?: boolean, testId?: string }) {
   return (
     <div className="flex items-center justify-between py-3">
       <span className={`text-sm font-medium ${disabled ? 'text-white/50' : 'text-white'}`}>{label}</span>
       <button
+        data-testid={testId}
         onClick={() => !disabled && onChange(!checked)}
         className={`relative w-11 h-6 rounded-full transition-colors ${checked ? 'bg-green-500' : 'bg-gray-600'} ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
         disabled={disabled}
@@ -68,7 +69,6 @@ export default function NotificationsPage() {
         const enabled = prefs.enabledChannels || [];
 
         // Map backend channels to UI state
-        // 'web_push', 'farcaster', 'baseapp' -> 'push' toggle
         const hasPush = enabled.includes('web_push') || enabled.includes('farcaster') || enabled.includes('baseapp');
 
         setChannels({
@@ -101,7 +101,6 @@ export default function NotificationsPage() {
           if (success) setChannels(p => ({ ...p, push: true }));
           else alert('Failed to enable Mini-App notifications');
         } else {
-          // Fallback or BaseApp specific check if needed
           setChannels(p => ({ ...p, push: true }));
         }
       } else {
@@ -158,15 +157,12 @@ export default function NotificationsPage() {
   const savePreferences = async () => {
     if (!walletAddress) return;
 
-    // Map UI 'push' back to specific backend channels based on context
     const enabledChannels = [];
     if (channels.email) enabledChannels.push('email');
     if (channels.telegram) enabledChannels.push('telegram');
 
     if (channels.push) {
       if (isMiniApp) {
-        // For MiniApp, we might enable 'farcaster' AND 'baseapp' generally,
-        // or rely on what tokens we have. For simplicity, enable both flags.
         enabledChannels.push('farcaster');
         enabledChannels.push('baseapp');
       } else {
@@ -190,7 +186,6 @@ export default function NotificationsPage() {
         })
       });
       alert('Preferences saved!');
-      // Reload/Refresh data to ensure consistency
       fetchPreferences();
     } catch (err) {
       alert('Failed to save settings');
@@ -225,12 +220,13 @@ export default function NotificationsPage() {
               label={isMiniApp ? "Mini-App Notifications" : "Web Notifications"}
               checked={channels.push}
               onChange={handlePushToggle}
+              testId="toggle-push"
             />
             <Toggle
               label="Email"
               checked={channels.email}
               onChange={(v) => setChannels(p => ({...p, email: v}))}
-              disabled={true} // Still placeholder for verify flow
+              disabled={true}
             />
             <Toggle
               label="Telegram"
