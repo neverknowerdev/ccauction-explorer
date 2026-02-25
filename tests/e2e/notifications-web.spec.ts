@@ -13,24 +13,21 @@ test.describe('Web Push Notifications E2E', () => {
     if (await connectBtn.isVisible()) {
       await connectBtn.click();
 
-      // Select Email Wallet
-      // Note: Dynamic widget selectors are unstable. We try finding by text.
       // Wait for the modal content
       await page.waitForTimeout(2000);
 
       const emailInput = page.getByTestId('dynamic-email-input').or(page.getByPlaceholder(/email/i)).first();
-      // If we can't find specific input, we might be in the wrong view.
-      // For E2E reliability with 3rd party widgets, we assume standard flow.
 
       if (await emailInput.isVisible()) {
-          await emailInput.fill('testing@dynamic.xyz');
+          // Use CORRECT test email format
+          await emailInput.fill('testing+dynamic_test@dynamic.xyz');
           // Find submit button
           await page.getByRole('button', { name: /Continue/i }).click();
 
           const otp = process.env.DYNAMIC_TEST_ACCOUNT_OTP;
           // Wait for OTP field
           const otpInput = page.getByRole('textbox').first();
-          await expect(otpInput).toBeVisible({ timeout: 5000 });
+          await expect(otpInput).toBeVisible({ timeout: 10000 });
           if (otp) await otpInput.fill(otp);
       }
     }
@@ -39,13 +36,15 @@ test.describe('Web Push Notifications E2E', () => {
     await page.goto('/account/notifications');
 
     // 4. Interact
-    // Force permission grant
     await page.context().grantPermissions(['notifications']);
 
-    // Find "Web Notifications" toggle
-    const webNotifToggle = page.locator('button').filter({ has: page.locator('span') }).first(); // Heuristic for the first toggle
+    // Find "Web Notifications" toggle - looking for the specific structure
+    // Since UI has a label "Web Notifications" and a button next to it
+    const toggleBtn = page.locator('div').filter({ hasText: 'Web Notifications' }).locator('button');
 
-    await webNotifToggle.click();
+    // Wait for it to be actionable
+    await expect(toggleBtn).toBeVisible();
+    await toggleBtn.click();
 
     // Fill Input
     await page.getByPlaceholder('e.g. 1000').fill('500');
