@@ -36,3 +36,5 @@ simulation-wallets.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+playwright-report/
+test-results/

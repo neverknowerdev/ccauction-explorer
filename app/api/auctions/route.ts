@@ -45,12 +45,10 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const aboveThresholdParam = searchParams.get('above_threshold');
   const aboveThresholdOnly = aboveThresholdParam !== 'all' && aboveThresholdParam !== '0' && aboveThresholdParam !== 'false';
-  const excludeTestnetsParam = searchParams.get('exclude_testnets');
-  const excludeTestnets = excludeTestnetsParam !== '0' && excludeTestnetsParam !== 'false';
 
   const [plannedRows, activeAndEndedRows, stats] = await Promise.all([
-    listPlannedAuctions(10, excludeTestnets),
-    listActiveAndEndedAuctions(10, aboveThresholdOnly, excludeTestnets),
+    listPlannedAuctions(10),
+    listActiveAndEndedAuctions(10, aboveThresholdOnly),
     getAuctionStats(true),
   ]);
 
@@ -67,7 +65,6 @@ export async function GET(request: Request) {
       id: row.id,
       chainId: row.chainId,
       chainName: getChainTitle(row.chainId) ?? row.chainName ?? null,
-      isTestnet: row.isTestnet ?? null,
       tokenTicker: token?.symbol ?? null,
       tokenName: token?.name ?? null,
       tokenImage: token?.icon ?? token?.logo ?? null,

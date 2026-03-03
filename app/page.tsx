@@ -1,77 +1,217 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import BottomNav from '@/components/BottomNav';
 import AppIcon from '@/components/AppIcon';
-import { AuctionCard } from '@/components/auction/AuctionCard';
 import { useMiniApp } from '@/contexts/MiniAppContext';
 import type { AuctionListItem, AuctionStats } from '@/lib/auctions/types';
-import { getLatestEthPriceUsdCached } from '@/app/helpers/auction-view-helpers';
+import { TokenAvatar } from '@/components/auction/TokenAvatar';
+import { FormattedPrice } from '@/components/auction/FormattedPrice';
+import { useNotifications } from '@/hooks/useNotifications';
 
-function formatRaised(value: string): string {
-  const num = Number(value);
-  if (!Number.isFinite(num) || num === 0) return '0';
-  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(2)}M`;
-  if (num >= 1_000) return `${(num / 1_000).toFixed(2)}K`;
-  return num.toFixed(2);
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+function formatDurationMs(ms: number): string {
+  if (ms <= 0) return '0m';
+  const totalMinutes = Math.floor(ms / (1000 * 60));
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
 }
 
-const defaultStats: AuctionStats = {
-  total: 0,
-  totalIncludingTest: 0,
-  active: 0,
-  ended: 0,
-  graduated: 0,
-  failed: 0,
-  totalBids: 0,
-  totalRaised: '0',
-};
+function formatFunds(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return value.toFixed(2);
+}
 
-// Mock notification preferences (UI-only)
-const MOCK_NOTIFICATION_PREFS = [
-  { label: 'Every new auction', enabled: true },
-  { label: 'Raised more than $50', enabled: true },
-  { label: 'FDV between $10K-$100K', enabled: false },
-  { label: 'Only Base chain', enabled: false },
-];
+// ─── Stat card ───────────────────────────────────────────────────────────────
 
-function StatCard({ label, value, accent }: { label: string; value: string | number; accent?: string }) {
+function StatCard({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string | number;
+  accent?: boolean;
+}) {
   return (
-    <div className="bg-white/20 backdrop-blur-md rounded-xl p-4 border border-white/30">
-      <p className="text-white/70 text-xs mb-1">{label}</p>
-      <p className={`text-xl font-bold ${accent ?? 'text-white'}`}>{value}</p>
+    <div
+      className={`rounded-xl p-4 border flex flex-col gap-1 ${accent
+          ? 'bg-purple-500/20 border-purple-400/30'
+          : 'bg-white/10 border-white/20'
+        }`}
+    >
+      <p className="text-white/60 text-xs leading-tight">{label}</p>
+      <p className="text-white font-bold text-xl leading-tight">{value}</p>
     </div>
   );
 }
 
-function NotificationPill({ label, enabled }: { label: string; enabled: boolean }) {
+// ─── Mini auction card ───────────────────────────────────────────────────────
+
+function LiveAuctionCard({ auction }: { auction: AuctionListItem }) {
+  const raised = auction.raised ?? 0;
+  const target = auction.target ?? 0;
+  const percent = target > 0 ? Math.min((raised / target) * 100, 100) : 0;
+  const endMs = auction.endTime ? new Date(auction.endTime).getTime() - Date.now() : null;
+  const timeLeft = endMs != null && endMs > 0 ? formatDurationMs(endMs) : 'Ending soon';
+
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${
-        enabled
-          ? 'bg-green-500/20 text-green-300 border border-green-500/30'
-          : 'bg-white/10 text-white/50 border border-white/10'
-      }`}
+    <Link
+      href={`/auction/${auction.id}`}
+      className="block bg-white/10 border border-white/20 rounded-xl p-4 hover:bg-white/20 transition-colors"
     >
-      <span className={`w-1.5 h-1.5 rounded-full ${enabled ? 'bg-green-400' : 'bg-white/30'}`} />
-      {label}
-    </span>
+      <div className="flex gap-3 items-start">
+        <TokenAvatar
+          tokenImage={auction.tokenImage}
+          tokenTicker={auction.tokenTicker}
+          className="w-full h-full"
+          fallbackClassName="w-12 h-12 flex-shrink-0"
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex justify-between items-start mb-1">
+            <div className="min-w-0">
+              <h3 className="font-semibold text-white truncate text-sm">
+                {auction.tokenTicker ?? 'Unknown'}
+              </h3>
+              <p className="text-white/50 text-xs truncate">{auction.tokenName ?? ''}</p>
+            </div>
+            <span className="flex items-center gap-1 bg-green-500/20 border border-green-400/30 text-green-300 text-xs px-2 py-0.5 rounded-full flex-shrink-0 ml-2">
+              <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse inline-block" />
+              Live
+            </span>
+          </div>
+
+          {/* Progress bar */}
+          <div className="h-1 bg-white/10 rounded-full overflow-hidden mb-2">
+            <div
+              className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full transition-all duration-500"
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+
+          <div className="flex justify-between text-xs text-white/60">
+            <span>
+              Raised:{' '}
+              <span className="text-white font-medium">
+                {auction.raised != null ? auction.raised.toFixed(2) : '-'}{' '}
+                {auction.currency ?? ''}
+              </span>
+            </span>
+            <span>
+              <span className="text-green-300 font-medium">{timeLeft}</span> left
+            </span>
+          </div>
+
+          <div className="mt-1 text-xs text-white/50">
+            Price:{' '}
+            <span className="text-white/80 font-medium">
+              <FormattedPrice price={auction.currentPrice} />
+            </span>
+          </div>
+        </div>
+      </div>
+    </Link>
   );
 }
+
+// ─── Notification block ──────────────────────────────────────────────────────
+
+function NotificationBlock() {
+  const { state, requesting, request } = useNotifications();
+
+  if (state === 'unknown') return null;
+
+  // Already granted — small confirmation strip
+  if (state === 'granted') {
+    return (
+      <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-base">🔔</span>
+          <p className="text-white/60 text-sm">Notifications enabled</p>
+        </div>
+        <Link
+          href="/account/notifications"
+          className="text-purple-300 text-xs font-medium hover:text-purple-200 transition-colors whitespace-nowrap"
+        >
+          Settings →
+        </Link>
+      </div>
+    );
+  }
+
+  // Browser has permanently blocked — instruct user
+  if (state === 'denied') {
+    return (
+      <div className="bg-orange-500/10 border border-orange-400/20 rounded-xl px-4 py-3 flex items-center gap-3">
+        <span className="text-base">🔕</span>
+        <p className="text-white/60 text-xs leading-relaxed">
+          Notifications blocked in browser settings. Enable them to get alerts for new auctions.
+        </p>
+      </div>
+    );
+  }
+
+  // Unsupported browser
+  if (state === 'unsupported') {
+    return (
+      <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex items-center gap-3">
+        <span className="text-base">🔔</span>
+        <p className="text-white/50 text-xs">Push notifications not supported in this browser.</p>
+      </div>
+    );
+  }
+
+  // Default: idle — show the prompt
+  return (
+    <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/10 border border-purple-400/30 rounded-xl p-4">
+      <div className="flex gap-3 items-start mb-3">
+        <span className="text-2xl">🔔</span>
+        <div className="flex-1">
+          <h3 className="text-white font-semibold text-sm mb-1">Don't miss new auctions!</h3>
+          <p className="text-white/60 text-xs leading-relaxed">
+            Get instant push notifications when a new auction goes live — right in your browser or Farcaster client.
+          </p>
+        </div>
+      </div>
+      <button
+        onClick={request}
+        disabled={requesting}
+        className="w-full bg-purple-500 hover:bg-purple-400 active:bg-purple-600 disabled:opacity-60 disabled:cursor-not-allowed transition-colors text-white font-semibold text-sm rounded-lg py-2.5"
+      >
+        {requesting ? 'Requesting…' : 'Enable Notifications'}
+      </button>
+    </div>
+  );
+}
+
+// ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function HomePage() {
   const router = useRouter();
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(false);
   const { username } = useMiniApp();
 
-  const [stats, setStats] = useState<AuctionStats>(defaultStats);
-  const [liveAuctions, setLiveAuctions] = useState<AuctionListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [ethPriceUsd, setEthPriceUsd] = useState<number | null>(null);
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  // Auction data
+  const [activeAuctions, setActiveAuctions] = useState<AuctionListItem[]>([]);
+  const [stats, setStats] = useState<AuctionStats>({
+    total: 0,
+    totalIncludingTest: 0,
+    active: 0,
+    ended: 0,
+  });
+  const [totalBids, setTotalBids] = useState<number>(0);
+  const [totalRaised, setTotalRaised] = useState<number>(0);
+  const [loadingData, setLoadingData] = useState(true);
 
+  // Onboarding check
   useEffect(() => {
     const seen = localStorage.getItem('hasSeenOnboarding');
     if (!seen) {
@@ -79,45 +219,51 @@ export default function HomePage() {
     } else {
       setHasSeenOnboarding(true);
     }
-    setNotificationsEnabled(localStorage.getItem('notificationsEnabled') === 'true');
   }, [router]);
 
+  // Fetch auction data
   useEffect(() => {
-    if (!hasSeenOnboarding) return;
     let isMounted = true;
-    setLoading(true);
+    setLoadingData(true);
+
     fetch('/api/auctions', { cache: 'no-store' })
       .then(async (res) => {
-        if (!res.ok) throw new Error('Failed to load');
+        if (!res.ok) throw new Error('Failed');
         return res.json();
       })
       .then((data) => {
         if (!isMounted) return;
-        setStats((data?.stats as AuctionStats) ?? defaultStats);
         const active = (data?.activeAuctions ?? []) as AuctionListItem[];
-        setLiveAuctions(active.slice(0, 5));
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (isMounted) setLoading(false);
-      });
-    return () => { isMounted = false; };
-  }, [hasSeenOnboarding]);
+        const ended = (data?.endedAuctions ?? []) as AuctionListItem[];
+        const planned = (data?.plannedAuctions ?? []) as AuctionListItem[];
 
-  useEffect(() => {
-    let isMounted = true;
-    getLatestEthPriceUsdCached()
-      .then((v) => { if (isMounted) setEthPriceUsd(v); })
-      .catch(() => {});
-    return () => { isMounted = false; };
+        setActiveAuctions(active.slice(0, 5));
+        setStats(
+          data?.stats ?? {
+            total: 0,
+            totalIncludingTest: 0,
+            active: 0,
+            ended: 0,
+          }
+        );
+
+        const all = [...active, ...ended, ...planned];
+        const bids = all.reduce((sum, a) => sum + (a.bidders ?? 0), 0);
+        const raised = all.reduce((sum, a) => sum + (a.raised ?? 0), 0);
+        setTotalBids(bids);
+        setTotalRaised(raised);
+      })
+      .catch(() => {/* silent */ })
+      .finally(() => {
+        if (isMounted) setLoadingData(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   if (!hasSeenOnboarding) return null;
-
-  const handleEnableNotifications = () => {
-    localStorage.setItem('notificationsEnabled', 'true');
-    setNotificationsEnabled(true);
-  };
 
   return (
     <div className="min-h-screen pb-20">
@@ -135,124 +281,78 @@ export default function HomePage() {
           </div>
         </header>
 
-        <main className="px-6 py-6 space-y-6">
-          {/* Stats Block */}
+        {/* Content */}
+        <main className="px-4 py-5 space-y-5">
+          {/* ── Stats ─────────────────────────────────────────────────────── */}
           <section>
-            <h2 className="text-white/80 text-xs uppercase tracking-wide mb-3">Stats</h2>
-            {loading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="animate-spin w-6 h-6 border-2 border-white/30 border-t-white rounded-full" />
-              </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-4 gap-2 mb-2">
-                  <StatCard label="Total" value={stats.total} />
-                  <StatCard label="Live" value={stats.active} accent="text-green-300" />
-                  <StatCard label="Graduated" value={stats.graduated} accent="text-emerald-300" />
-                  <StatCard label="Failed" value={stats.failed} accent="text-red-300" />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <StatCard label="Total Bids" value={stats.totalBids} />
-                  <StatCard label="Total Raised" value={formatRaised(stats.totalRaised)} />
-                </div>
-              </>
-            )}
-          </section>
-
-          {/* Top Live Auctions */}
-          <section>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-white/80 text-xs uppercase tracking-wide">Live Auctions</h2>
-              {liveAuctions.length > 0 && (
-                <Link
-                  href="/live-auctions"
-                  className="text-xs text-purple-300 hover:text-purple-200 transition-colors"
-                >
-                  Show more
-                </Link>
-              )}
-            </div>
-
-            {loading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="animate-spin w-6 h-6 border-2 border-white/30 border-t-white rounded-full" />
-              </div>
-            ) : liveAuctions.length > 0 ? (
-              <div className="space-y-3">
-                {liveAuctions.map((auction) => (
-                  <AuctionCard key={auction.id} auction={auction} ethPriceUsd={ethPriceUsd} />
+            <h2 className="text-white/70 text-xs uppercase tracking-wider mb-3 px-1">Overview</h2>
+            {loadingData ? (
+              <div className="grid grid-cols-2 gap-3">
+                {[...Array(4)].map((_, i) => (
+                  <div
+                    key={i}
+                    className="h-16 rounded-xl bg-white/5 border border-white/10 animate-pulse"
+                  />
                 ))}
               </div>
             ) : (
-              <div className="bg-white/10 backdrop-blur-md rounded-xl p-6 border border-white/20 text-center">
-                <div className="text-3xl mb-3">
-                  <svg className="w-10 h-10 mx-auto text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+              <div className="grid grid-cols-2 gap-3">
+                <StatCard label="Total Auctions" value={stats.total} />
+                <StatCard label="Active Now" value={stats.active} accent />
+                <StatCard label="Graduated / Ended" value={stats.ended} />
+                <StatCard label="Total Bids" value={totalBids} />
+                <div className="col-span-2">
+                  <StatCard
+                    label="Total Funds Raised"
+                    value={`${formatFunds(totalRaised)} ETH`}
+                  />
                 </div>
-                <p className="text-white/70 text-sm mb-1">No live auctions right now</p>
-                <p className="text-white/50 text-xs">
-                  We&apos;ll notify you as soon as a new auction is created!
-                </p>
               </div>
             )}
           </section>
 
-          {/* Notifications Block */}
+          {/* ── Notification block ─────────────────────────────────────────── */}
           <section>
-            <h2 className="text-white/80 text-xs uppercase tracking-wide mb-3">Notifications</h2>
+            <NotificationBlock />
+          </section>
 
-            {!notificationsEnabled ? (
-              <div className="bg-gradient-to-br from-purple-500/30 to-pink-500/20 backdrop-blur-md rounded-xl p-5 border border-purple-500/30">
-                <div className="flex items-start gap-3">
-                  <div className="flex-shrink-0 mt-0.5">
-                    <svg className="w-6 h-6 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                    </svg>
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="text-white font-semibold text-sm mb-1">Don&apos;t miss any auctions!</h3>
-                    <p className="text-white/70 text-xs leading-relaxed mb-3">
-                      Auctions can appear at any time. Enable notifications to be the first to know when a new auction goes live.
-                    </p>
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={handleEnableNotifications}
-                        className="bg-white text-purple-900 text-sm font-semibold px-4 py-2 rounded-lg hover:bg-white/90 transition-colors"
-                      >
-                        Enable notifications
-                      </button>
-                      <Link
-                        href="/account"
-                        className="text-xs text-purple-300 hover:text-purple-200 transition-colors underline underline-offset-2"
-                      >
-                        Learn more
-                      </Link>
-                    </div>
-                  </div>
-                </div>
+          {/* ── Top-5 live auctions ────────────────────────────────────────── */}
+          <section>
+            <div className="flex items-center justify-between mb-3 px-1">
+              <h2 className="text-white/70 text-xs uppercase tracking-wider">
+                Live Auctions
+              </h2>
+              <Link
+                href="/live-auctions"
+                className="text-purple-300 text-xs font-medium hover:text-purple-200 transition-colors"
+              >
+                View all →
+              </Link>
+            </div>
+
+            {loadingData ? (
+              <div className="space-y-3">
+                {[...Array(3)].map((_, i) => (
+                  <div
+                    key={i}
+                    className="h-24 rounded-xl bg-white/5 border border-white/10 animate-pulse"
+                  />
+                ))}
+              </div>
+            ) : activeAuctions.length > 0 ? (
+              <div className="space-y-3">
+                {activeAuctions.map((auction) => (
+                  <LiveAuctionCard key={auction.id} auction={auction} />
+                ))}
               </div>
             ) : (
-              <div className="bg-white/10 backdrop-blur-md rounded-xl p-5 border border-white/20">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                    </svg>
-                    <span className="text-white text-sm font-medium">Notifications enabled</span>
-                  </div>
-                  <Link
-                    href="/account"
-                    className="text-xs text-purple-300 hover:text-purple-200 transition-colors"
-                  >
-                    Edit settings
-                  </Link>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {MOCK_NOTIFICATION_PREFS.map((pref) => (
-                    <NotificationPill key={pref.label} label={pref.label} enabled={pref.enabled} />
-                  ))}
-                </div>
+              <div className="bg-white/5 border border-white/10 rounded-xl px-5 py-8 text-center">
+                <p className="text-3xl mb-3">🔨</p>
+                <p className="text-white font-semibold text-sm mb-1">No ongoing auctions</p>
+                <p className="text-white/50 text-xs leading-relaxed">
+                  No auctions are live right now, but they can appear at any moment.{' '}
+                  <span className="text-purple-300">Don't miss it!</span>
+                </p>
               </div>
             )}
           </section>

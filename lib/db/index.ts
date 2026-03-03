@@ -3,11 +3,7 @@ import postgres from 'postgres';
 import * as schema from './schema';
 
 // Connection string from environment (same as run-migrations.sh)
-const connectionString = process.env.DB_CONNECTION_STRING;
-
-if (!connectionString) {
-  throw new Error('DB_CONNECTION_STRING environment variable is not set');
-}
+const connectionString = process.env.DB_CONNECTION_STRING || 'postgres://postgres:postgres@localhost:5432/goodlaunch';
 
 // Create postgres client
 const client = postgres(connectionString);
