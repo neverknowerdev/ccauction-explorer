@@ -10,6 +10,7 @@ CREATE TABLE user_notification_settings (
   farcaster_token             text,
   farcaster_notification_url  text,
   baseapp_token               text,
+  baseapp_notification_url    text,
   updated_at                  timestamptz NOT NULL DEFAULT now()
 );
 
