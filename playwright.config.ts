@@ -1,7 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
+import * as dotenv from 'dotenv';
+
+dotenv.config({ path: '.env.local' });
 
 export default defineConfig({
   testDir: './tests/e2e',
+  timeout: 60 * 1000,
   testMatch: '**/*.spec.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
@@ -19,10 +23,9 @@ export default defineConfig({
     },
   ],
   webServer: process.env.CI ? {
-    // Force build inside the test runner to ensure artifacts exist
-    command: 'yarn build && yarn start',
+    command: 'npm run dev',
     url: 'http://localhost:3000',
     reuseExistingServer: false,
-    timeout: 180 * 1000, // Increased timeout for build + start
+    timeout: 120 * 1000,
   } : undefined,
 });
